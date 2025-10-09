@@ -11,8 +11,9 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const filter = ref('')
 
-async function load () {
-  loading.value = true; error.value = null
+async function load() {
+  loading.value = true
+  error.value = null
   try {
     pending.value = await auth.listPendingUsers()
   } catch (e: any) {
@@ -22,26 +23,20 @@ async function load () {
   }
 }
 
-async function approve (uid: string) {
-  $q.dialog({
-    title: 'Bestätigen',
-    message: 'Diesen Benutzer freigeben?',
-    cancel: true,
-    persistent: true
-  }).onOk(async () => {
+async function approve(uid: string) {
     await auth.approveUser(uid, auth.user!.uid)
     $q.notify({ type: 'positive', message: 'Benutzer freigegeben' })
     await load()
-  })
 }
 
-async function block (uid: string) {
+async function block(uid: string) {
   $q.dialog({
+    class: "dialog-wood",
     title: 'Sperren',
     message: 'Diese Anmeldung ablehnen und Benutzer sperren?',
     cancel: true,
     ok: { color: 'negative', label: 'Sperren' },
-    persistent: true
+    persistent: true,
   }).onOk(async () => {
     await auth.blockUser(uid, auth.user!.uid)
     $q.notify({ type: 'negative', message: 'Benutzer gesperrt' })
@@ -50,17 +45,17 @@ async function block (uid: string) {
 }
 
 const rows = computed(() =>
-  pending.value.map(u => ({
+  pending.value.map((u) => ({
     ...u,
     name: u.displayName || 'Unbekannt',
-    email: u.email || '—'
-  }))
+    email: u.email || '—',
+  })),
 )
 
 const columns = [
-  { name: 'name',  label: 'Name',  field: 'name',  align: 'left', sortable: true },
+  { name: 'name', label: 'Name', field: 'name', align: 'left', sortable: true },
   { name: 'email', label: 'E-Mail', field: 'email', align: 'left', sortable: true },
-  { name: 'actions', label: 'Aktionen', field: 'actions', align: 'right' }
+  { name: 'actions', label: 'Aktionen', field: 'actions', align: 'right' },
 ]
 
 onMounted(load)
@@ -71,23 +66,14 @@ onMounted(load)
     <div class="row items-center justify-between q-mb-md">
       <div class="text-h5">Admin – Ausstehende Anmeldungen</div>
       <div class="row items-center q-gutter-sm">
-        <q-input
-          dense outlined clearable
-          v-model="filter"
-          placeholder="Suchen…"
-          debounce="200"
-          style="min-width: 220px"
-          prefix-icon="search"
-        >
-          <template #append><q-icon name="search" /></template>
-        </q-input>
-        <q-btn dense outline icon="refresh" @click="load" label="Aktualisieren" />
+        <q-btn no-caps dense outline icon="refresh" @click="load" label="Aktualisieren" />
       </div>
     </div>
 
-    <q-card flat bordered>
+    <q-card flat class="card-wood">
       <q-card-section class="q-pa-none">
         <q-table
+          class="wood-surface"
           :rows="rows"
           :columns="columns"
           row-key="uid"
@@ -114,11 +100,20 @@ onMounted(load)
           <template #body-cell-actions="props">
             <q-td :props="props" class="text-right">
               <q-btn
-                dense color="positive" icon="check" label="Akzeptieren"
-                class="q-mr-sm" @click="approve(props.row.uid)"
+                no-caps
+                dense
+                color="positive"
+                icon="check"
+                label="Akzeptieren"
+                class="q-mr-sm"
+                @click="approve(props.row.uid)"
               />
               <q-btn
-                dense color="negative" icon="block" label="Ablehnen"
+                no-caps
+                dense
+                color="negative"
+                icon="block"
+                label="Ablehnen"
                 @click="block(props.row.uid)"
               />
             </q-td>
@@ -135,11 +130,7 @@ onMounted(load)
       <q-banner v-if="error" class="bg-negative text-white">
         <q-icon name="error" class="q-mr-sm" /> {{ error }}
       </q-banner>
-
-      <q-banner v-else-if="!loading && rows.length === 0" class="bg-grey-2">
-        <q-icon name="celebration" class="q-mr-sm" />
-        Keine offenen Anfragen 🎉
-      </q-banner>
     </q-card>
+    <q-btn color="primary" no-caps class="absolute-bottom" to="/">Zurück</q-btn>
   </q-page>
 </template>

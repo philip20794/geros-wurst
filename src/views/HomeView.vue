@@ -31,8 +31,9 @@ async function onSaveEdit(data: { name: string; sausagesPerPack: number; totalPa
 }
 async function adminDelete(w: Wurst) {
   $q.dialog({
+    class: "dialog-wood",
     title: "Löschen?",
-    message: `Wurst „${w.name}“ wirklich löschen?`,
+    message: `${w.name} wirklich löschen?`,
     ok: { color: "negative", label: "Löschen" },
     cancel: true,
     persistent: true
@@ -46,8 +47,7 @@ async function adminDelete(w: Wurst) {
 <template>
   <q-page padding>
     <div class="row items-center justify-between q-mb-md">
-      <div class="text-h5">Willkommen, {{ auth.user?.displayName || auth.user?.email }}</div>
-      <q-btn
+      <q-btn no-caps
         v-if="auth.meta?.role === 'admin'"
         color="primary" icon="add" label="Neue Wurst"
         @click="toNewWurst" unelevated

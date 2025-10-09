@@ -16,8 +16,8 @@ async function logout() {
 </script>
 
 <template>
-  <q-page class="flex flex-center bg-grey-2">
-    <q-card flat bordered style="max-width:520px; width:100%;">
+  <q-page class="flex flex-center">
+    <q-card flat  style="max-width:520px; width:100%;" class="card-wood">
       <q-card-section class="bg-negative text-white">
         <div class="row items-center">
           <q-icon name="block" size="md" class="q-mr-sm" />
@@ -41,7 +41,7 @@ async function logout() {
       <q-separator />
 
       <q-card-actions class="q-pa-md">
-        <q-btn color="negative" unelevated icon="logout" label="Abmelden" @click="logout" />
+        <q-btn color="negative" unelevated icon="logout" label="Abmelden" @click="logout" no-caps />
       </q-card-actions>
     </q-card>
   </q-page>

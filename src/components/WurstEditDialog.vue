@@ -61,15 +61,15 @@ async function onSubmit() {
 </script>
 
 <template>
-  <q-dialog v-model="open" persistent>
-    <q-card style="max-width: 560px; width: 100%">
+  <q-dialog v-model="open">
+    <q-card style="max-width: 560px; width: 100%" class="card-wood">
       <q-card-section class="bg-primary text-white">
         <div class="text-h6">Wurst bearbeiten</div>
         <div class="text-subtitle2">{{ wurst?.name }}</div>
       </q-card-section>
 
       <q-card-section>
-        <q-form ref="formRef" @submit.prevent="onSubmit" class="q-gutter-md">
+        <q-form ref="formRef" @submit.prevent="onSubmit">
           <q-input
             v-model="form.name"
             label="Name"
@@ -92,7 +92,7 @@ async function onSubmit() {
               <q-input
                 v-model.number="form.totalPacks"
                 type="number"
-                label="Gesamt-Packungen"
+                label="Packungen"
                 outlined
                 :rules="[rules.intGte0]"
                 min="0"
@@ -114,8 +114,8 @@ async function onSubmit() {
       <q-separator />
 
       <q-card-actions align="right">
-        <q-btn flat label="Abbrechen" color="grey-7" @click="open=false" />
-        <q-btn unelevated color="primary" label="Speichern" @click="onSubmit" />
+        <q-btn no-caps flat label="Abbrechen" color="grey-7" @click="open=false" />
+        <q-btn no-caps unelevated color="primary" label="Speichern" @click="onSubmit" />
       </q-card-actions>
     </q-card>
   </q-dialog>

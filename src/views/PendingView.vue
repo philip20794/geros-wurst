@@ -66,7 +66,7 @@ async function logout() {
 
 <template>
   <q-page class="flex flex-center">
-    <q-card flat bordered style="max-width:560px; width:100%;">
+    <q-card flat style="max-width:560px; width:100%;" class="card-wood">
       <q-card-section class="bg-primary text-white">
         <div class="row items-center">
           <q-icon name="hourglass_top" size="md" class="q-mr-sm" />
@@ -108,7 +108,7 @@ async function logout() {
       <q-separator />
 
       <q-card-actions>
-        <q-btn color="primary" unelevated icon="logout" label="Abmelden" @click="logout" />
+        <q-btn color="primary" unelevated icon="logout" no-caps label="Abmelden" @click="logout" />
       </q-card-actions>
 
       <!-- Loader anzeigen, solange Auth noch lädt ODER der erste Snapshot noch nicht da ist -->

@@ -1,46 +1,55 @@
 <script setup lang="ts">
-import { ref, watchEffect } from "vue";
-import { useAuthStore, watchPendingUsers } from "@/stores/auth";
-import { useRouter } from "vue-router";
-import { useQuasar } from "quasar";
+import { ref, watchEffect } from 'vue'
+import { useAuthStore, watchPendingUsers } from '@/stores/auth'
+import { useRouter } from 'vue-router'
+import { useQuasar } from 'quasar'
 
-const $q = useQuasar();
-const auth = useAuthStore();
-const router = useRouter();
+const $q = useQuasar()
+const auth = useAuthStore()
+const router = useRouter()
 
-const pendingCount = ref(0);
-let unsub: (() => void) | null = null;
+const pendingCount = ref(0)
+let unsub: (() => void) | null = null
 
 // 🔁 Echtzeitbeobachtung der pending Users für Admins
 watchEffect((onCleanup) => {
-  if (auth.meta?.role === "admin") {
-    unsub = watchPendingUsers((count) => (pendingCount.value = count));
+  if (auth.meta?.role === 'admin') {
+    unsub = watchPendingUsers((count) => (pendingCount.value = count))
     onCleanup(() => {
-      if (unsub) unsub();
-      unsub = null;
-      pendingCount.value = 0;
-    });
+      if (unsub) unsub()
+      unsub = null
+      pendingCount.value = 0
+    })
   } else {
-    if (unsub) unsub();
-    unsub = null;
-    pendingCount.value = 0;
+    if (unsub) unsub()
+    unsub = null
+    pendingCount.value = 0
   }
-});
+})
 
 async function logout() {
-  await auth.logout();
-  $q.notify({ message: "Abgemeldet", color: "info", position: "top" });
-  router.push({ name: "auth" });
+  await auth.logout()
+  $q.notify({ message: 'Abgemeldet', color: 'info', position: 'top' })
+  router.push({ name: 'auth' })
 }
 
 function goAdmin() {
-  router.push({ name: "admin" });
+  router.push({ name: 'admin' })
 }
 </script>
 
 <template>
   <q-header elevated class="bg-primary text-white">
     <q-toolbar>
+      <q-item clickable v-close-popup @click="router.push({ name: 'home' })">
+          <q-img
+            src="@/assets/wurst.png"
+            alt="Geros Wurst Logo"
+            style="width: 36px; height: 36px;"
+            fit="contain"
+          />
+      </q-item>
+
       <q-toolbar-title>Geros Wurst</q-toolbar-title>
 
       <!-- 🔔 Notification -->
@@ -50,13 +59,9 @@ function goAdmin() {
         round
         icon="notifications"
         @click="goAdmin"
+        :color="pendingCount > 0 ? 'accent' : 'secondary'"
       >
-        <q-badge
-          v-if="pendingCount > 0"
-          color="negative"
-          floating
-          transparent
-        >
+        <q-badge v-if="pendingCount > 0" color="negative" floating transparent>
           {{ pendingCount }}
         </q-badge>
       </q-btn>
@@ -64,17 +69,19 @@ function goAdmin() {
       <!-- 👤 User Menü -->
       <div v-if="auth.user" class="row items-center q-gutter-sm">
         <q-btn flat round>
-          <q-avatar size="32px" color="white" text-color="primary">
-            {{ auth.user.displayName
-              ? auth.user.displayName.charAt(0).toUpperCase()
-              : auth.user.email?.charAt(0).toUpperCase() }}
+          <q-avatar size="32px" color="secondary" text-color="white">
+            {{
+              auth.user.displayName
+                ? auth.user.displayName.charAt(0).toUpperCase()
+                : auth.user.email?.charAt(0).toUpperCase()
+            }}
           </q-avatar>
 
           <!-- 📋 Menü mit Userdaten -->
           <q-menu anchor="bottom right" self="top right">
-            <q-card style="min-width: 220px;">
+            <q-card style="min-width: 220px" class="card-wood">
               <q-card-section class="q-pa-sm">
-                <div class="text-h6">{{ auth.user.displayName || "Kein Name" }}</div>
+                <div class="text-h6">{{ auth.user.displayName || 'Kein Name' }}</div>
                 <div class="text-subtitle2 text-grey">
                   {{ auth.user.email }}
                 </div>

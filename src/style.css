@@ -1,16 +1,134 @@
-/* src/style.css */
-
-/* Ein paar Basisstyles */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
 body {
-  font-family: system-ui, sans-serif;
-  background-color: #f4f4f9;
-  color: #222;
+  background: linear-gradient(to bottom, #3a433a 0%, #2a2f2a 50%, #1b1e1b 100%);
+  background-attachment: fixed;
+  background-size: cover;
+  color: #f5e8c7; /* dein heller Holz-Textton */
 }
 
-/* Du kannst später Tailwind oder eigene Styles hier einfügen */
+
+
+
+
+.q-header {
+  background: linear-gradient(90deg, #2e4731, #3f6746);
+  color: #f2f2f2;
+}
+
+.q-btn {
+  border-radius: 10px;
+  text-transform: none;
+}
+
+/* 🔸 Tabs im Holz-Theme */
+.tabs-wood {
+  background: transparent;
+  color: var(--text-on-card);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.tabs-wood .q-tab {
+  transition: color 0.3s ease, opacity 0.3s ease;
+}
+
+/* Inaktive Tabs – leicht transparent */
+.tabs-wood .q-tab:not(.q-tab--active) {
+  color: rgba(245, 232, 199, 0.6); /* heller Holzton, halbtransparent */
+}
+
+/* Aktiver Tab – hell/akzentuiert */
+.tabs-wood .q-tab--active {
+  color: var(--text-on-card);
+  font-weight: 600;
+}
+
+/* Unterstreichung */
+.tabs-wood .q-tabs__indicator {
+  background: var(--q-accent, #FFD580);
+  height: 3px;
+  border-radius: 2px;
+}
+
+/* 🔹 Button passend zum Holzstil */
+.btn-wood {
+  background: linear-gradient(145deg, #355e3b, #2a472f);
+  color: #f5e8c7;
+  font-weight: 600;
+  border-radius: 6px;
+  text-transform: none;
+  transition: background 0.3s ease, transform 0.1s ease;
+}
+
+.btn-wood:hover {
+  background: linear-gradient(145deg, #3f7245, #355e3b);
+}
+
+.btn-wood:active {
+  transform: scale(0.98);
+}
+
+/* Outline/Background der Fields auf dunklem Holz klarer machen */
+.card-wood .q-field--outlined .q-field__control {
+  border-color: rgba(255,255,255,0.35);
+  background: rgba(0,0,0,0.18);
+}
+.card-wood .q-field--outlined.q-field--focused .q-field__control,
+.card-wood .q-field--outlined.q-field--highlighted .q-field__control {
+  border-color: var(--q-accent, #FFD580);
+}
+
+/* Text/Label in den Feldern hell */
+.card-wood .q-field__label,
+.card-wood .q-field__native,
+.card-wood .q-field__prefix,
+.card-wood .q-field__suffix,
+.card-wood .q-field__append,
+.card-wood .q-field__prepend {
+  color: var(--text-on-card) !important;
+}
+
+/* Datei-Input Label */
+.card-wood .q-file__label {
+  color: var(--text-on-card) !important;
+}
+
+/* Ziel: die Card im Dialog, die per class: 'dialog-wood' markiert ist */
+.q-dialog .q-card.dialog-wood {
+  background: linear-gradient(145deg, #3a2a10, #1f1408) !important;
+  color: var(--text-on-card) !important;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+
+/* Titel & Message */
+.q-dialog .q-card.dialog-wood .q-dialog__title {
+  color: #FFD580;                 /* Akzent */
+  font-weight: 700;
+}
+.q-dialog .q-card.dialog-wood .q-dialog__message {
+  color: var(--text-on-card);
+  opacity: .9;
+}
+
+/* Sektionen transparent halten */
+.q-dialog .q-card.dialog-wood .q-card__section {
+  background: transparent;
+}
+
+/* Buttons im Dialog */
+.q-dialog .q-card.dialog-wood .q-btn {
+  border-radius: 6px;
+  text-transform: none;
+}
+.q-dialog .q-card.dialog-wood .q-btn--standard {
+  background: linear-gradient(145deg, #355e3b, #2a472f);
+  color: #f5e8c7;
+}
+.q-dialog .q-card.dialog-wood .q-btn--flat {
+  color: #f5e8c7;
+  opacity: .85;
+}
+
+/* Overlay etwas dunkler (optional) */
+.q-dialog__backdrop {
+  background: rgba(0,0,0,.6);
+}
