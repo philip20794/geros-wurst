@@ -1,32 +1,70 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { useQuasar } from "quasar";
 
 type Mode = "login" | "register";
 const mode = ref<Mode>("login");
+
 const auth = useAuthStore();
 const router = useRouter();
+const $q = useQuasar();
 
 const form = reactive({
   email: "",
   password: "",
   displayName: "",
 });
+const showPwd = ref(false);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
+// einfache Validierungsregeln (Quasar-Style)
+const rules = {
+  required: (v: string) => !!v || "Pflichtfeld",
+  email: (v: string) =>
+    /.+@.+\..+/.test(v) || "Ungültige E-Mail",
+  min6: (v: string) => (v?.length ?? 0) >= 6 || "Mindestens 6 Zeichen",
+};
+
+// beim Tab-Wechsel Fehler & Felder sinnvoll bereinigen
+watch(mode, (m) => {
+  error.value = null;
+  if (m === "login") form.displayName = "";
+});
+
 async function submit() {
-  loading.value = true; error.value = null;
+  loading.value = true;
+  error.value = null;
+
   try {
     if (mode.value === "login") {
-      await auth.login(form.email, form.password);
+      await auth.login(form.email.trim(), form.password);
+      $q.notify({ type: "positive", message: "Willkommen zurück!" });
     } else {
-      await auth.register(form.email, form.password, form.displayName || undefined);
+      await auth.register(
+        form.email.trim(),
+        form.password,
+        form.displayName.trim() || undefined
+      );
+      $q.notify({ type: "info", message: "Konto erstellt. Warte auf Freigabe." });
     }
-    router.push({ name: "home" });
+    router.push({ name: "home" }); // Guard leitet ggf. zu /pending
   } catch (e: any) {
-    error.value = e?.message ?? "Unbekannter Fehler";
+    // hübschere Fehlermeldungen
+    const code = e?.code as string | undefined;
+    if (code === "auth/email-already-in-use") {
+      error.value = "Diese E-Mail ist bereits registriert. Bitte anmelden.";
+      mode.value = "login";
+    } else if (code === "auth/invalid-credential" || code === "auth/wrong-password") {
+      error.value = "E-Mail oder Passwort falsch.";
+    } else if (code === "auth/user-not-found") {
+      error.value = "Kein Konto mit dieser E-Mail. Bitte registrieren.";
+      mode.value = "register";
+    } else {
+      error.value = e?.message ?? "Unbekannter Fehler";
+    }
   } finally {
     loading.value = false;
   }
@@ -34,44 +72,100 @@ async function submit() {
 </script>
 
 <template>
-  <div class="container">
-    <div class="card">
-      <h1>{{ mode === 'login' ? 'Anmelden' : 'Konto erstellen' }}</h1>
+  <q-page class="flex flex-center">
+    <q-card flat bordered style="width:100%;max-width:480px">
+      <q-card-section class="bg-primary text-white">
+        <div class="text-h5">Geros Wurst</div>
+        <div class="text-subtitle2">Anmelden oder Konto erstellen</div>
+      </q-card-section>
 
-      <form @submit.prevent="submit">
-        <label>Email</label>
-        <input v-model="form.email" type="email" required />
+      <q-separator />
 
-        <label>Passwort</label>
-        <input v-model="form.password" type="password" required minlength="6" />
+      <!-- Tabs -->
+      <q-tabs v-model="mode" class="text-primary" align="justify" dense>
+        <q-tab name="login"  label="Anmelden" icon="login" />
+        <q-tab name="register" label="Registrieren" icon="person_add" />
+      </q-tabs>
+      <q-separator />
 
-        <template v-if="mode === 'register'">
-          <label>Anzeigename (optional)</label>
-          <input v-model="form.displayName" type="text" />
-        </template>
+      <q-card-section>
+        <q-form @submit.prevent="submit" class="q-gutter-md">
 
-        <button :disabled="loading">{{ loading ? '...' : (mode === 'login' ? 'Login' : 'Registrieren') }}</button>
-        <p v-if="error" class="error">{{ error }}</p>
-      </form>
+          <!-- E-Mail -->
+          <q-input
+            v-model="form.email"
+            type="email"
+            label="E-Mail"
+            outlined
+            :rules="[rules.required, rules.email]"
+            autocomplete="email"
+          >
+            <template #prepend><q-icon name="mail" /></template>
+          </q-input>
 
-      <p class="switch">
-        <button class="link" @click="mode = mode === 'login' ? 'register' : 'login'">
-          {{ mode === 'login' ? 'Noch kein Konto? Jetzt registrieren' : 'Schon ein Konto? Jetzt anmelden' }}
-        </button>
-      </p>
-    </div>
-  </div>
+          <!-- Passwort -->
+          <q-input
+            v-model="form.password"
+            :type="showPwd ? 'text' : 'password'"
+            label="Passwort"
+            outlined
+            :rules="[rules.required, rules.min6]"
+            autocomplete="current-password"
+          >
+            <template #prepend><q-icon name="lock" /></template>
+            <template #append>
+              <q-icon
+                :name="showPwd ? 'visibility_off' : 'visibility'"
+                class="cursor-pointer"
+                @click="showPwd = !showPwd"
+              />
+            </template>
+          </q-input>
+
+          <!-- Anzeigename nur beim Registrieren -->
+          <q-input
+            v-if="mode === 'register'"
+            v-model="form.displayName"
+            label="Anzeigename (optional)"
+            outlined
+            autocomplete="name"
+          >
+            <template #prepend><q-icon name="badge" /></template>
+          </q-input>
+
+          <!-- Fehlerbanner -->
+          <q-banner
+            v-if="error"
+            class="bg-negative text-white q-pa-sm"
+            rounded
+          >
+            <q-icon name="error" class="q-mr-sm" />
+            {{ error }}
+          </q-banner>
+
+          <div class="row justify-end q-gutter-sm">
+            <q-btn
+              color="primary"
+              :label="mode === 'login' ? 'Login' : 'Registrieren'"
+              type="submit"
+              :loading="loading"
+              unelevated
+            />
+          </div>
+        </q-form>
+      </q-card-section>
+
+      <q-separator />
+
+      <!-- Umschalter unter dem Formular -->
+      <q-card-section class="text-center">
+        <q-btn
+          flat
+          color="primary"
+          :label="mode === 'login' ? 'Noch kein Konto? Jetzt registrieren' : 'Schon ein Konto? Jetzt anmelden'"
+          @click="mode = mode === 'login' ? 'register' : 'login'"
+        />
+      </q-card-section>
+    </q-card>
+  </q-page>
 </template>
-
-<style scoped>
-.container{min-height:100vh;display:grid;place-items:center;padding:2rem;background:#0b0c10;}
-.card{width:100%;max-width:420px;background:#15171c;border:1px solid #2a2e35;border-radius:16px;padding:24px;color:#e9e9ea;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-h1{margin:0 0 16px;font-size:24px}
-label{display:block;margin-top:12px;font-size:12px;opacity:.8}
-input{width:100%;margin-top:6px;padding:10px 12px;background:#0f1115;border:1px solid #2a2e35;border-radius:10px;color:#fff;outline:none}
-button{margin-top:16px;width:100%;padding:10px 12px;border-radius:10px;border:0;background:#7c5cff;color:white;font-weight:600;cursor:pointer}
-button[disabled]{opacity:.6;cursor:default}
-.error{color:#ff8686;margin-top:10px}
-.link{background:transparent;border:0;color:#a6a8ff;text-decoration:underline;cursor:pointer;padding:0;margin:0}
-.switch{margin-top:12px;text-align:center}
-</style>
