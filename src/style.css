@@ -1,0 +1,16 @@
+/* src/style.css */
+
+/* Ein paar Basisstyles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  background-color: #f4f4f9;
+  color: #222;
+}
+
+/* Du kannst später Tailwind oder eigene Styles hier einfügen */
