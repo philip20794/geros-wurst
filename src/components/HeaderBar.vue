@@ -1,56 +1,16 @@
-<script setup lang="ts">
-import { ref, watchEffect } from 'vue'
-import { useAuthStore, watchPendingUsers } from '@/stores/auth'
-import { useRouter } from 'vue-router'
-import { useQuasar } from 'quasar'
-
-const $q = useQuasar()
-const auth = useAuthStore()
-const router = useRouter()
-
-const pendingCount = ref(0)
-let unsub: (() => void) | null = null
-
-// 🔁 Echtzeitbeobachtung der pending Users für Admins
-watchEffect((onCleanup) => {
-  if (auth.meta?.role === 'admin') {
-    unsub = watchPendingUsers((count) => (pendingCount.value = count))
-    onCleanup(() => {
-      if (unsub) unsub()
-      unsub = null
-      pendingCount.value = 0
-    })
-  } else {
-    if (unsub) unsub()
-    unsub = null
-    pendingCount.value = 0
-  }
-})
-
-async function logout() {
-  await auth.logout()
-  $q.notify({ message: 'Abgemeldet', color: 'info', position: 'top' })
-  router.push({ name: 'auth' })
-}
-
-function goAdmin() {
-  router.push({ name: 'admin' })
-}
-</script>
-
 <template>
   <q-header elevated class="bg-primary text-white">
     <q-toolbar>
       <q-item clickable v-close-popup @click="router.push({ name: 'home' })">
           <q-img
             src="@/assets/wurst.png"
-            alt="Geros Wurst Logo"
+            alt="Geros Wild Logo"
             style="width: 36px; height: 36px;"
             fit="contain"
           />
       </q-item>
 
-      <q-toolbar-title>Geros Wurst</q-toolbar-title>
+      <q-toolbar-title>Geros Wild</q-toolbar-title>
 
       <!-- 🔔 Notification -->
       <q-btn
@@ -109,6 +69,24 @@ function goAdmin() {
                   <q-item-section>Admin Bereich</q-item-section>
                 </q-item>
 
+                <q-item clickable v-close-popup @click="openEnablePushDialog($q)">
+                  <q-item-section avatar>
+                    <q-icon name="notifications_active" />
+                  </q-item-section>
+                  <q-item-section>Push aktivieren</q-item-section>
+                </q-item>
+
+                <q-item clickable v-close-popup @click="openInstallAppDialog($q)">
+                  <q-item-section avatar>
+                    <q-icon name="download" />
+                  </q-item-section>
+                  <q-item-section>App installieren</q-item-section>
+                </q-item>
+
+
+                <q-separator />
+
+
                 <q-item clickable v-close-popup @click="logout">
                   <q-item-section avatar>
                     <q-icon name="logout" />
@@ -123,6 +101,50 @@ function goAdmin() {
     </q-toolbar>
   </q-header>
 </template>
+
+<script setup lang="ts">
+import { ref, watchEffect } from 'vue'
+import { useAuthStore, watchPendingUsers } from '@/stores/auth'
+import { useRouter } from 'vue-router'
+import { useQuasar } from 'quasar'
+import { openEnablePushDialog } from '@/services/pushEnable'
+import { openInstallAppDialog } from '@/services/pwaInstall'
+
+
+
+const $q = useQuasar()
+const auth = useAuthStore()
+const router = useRouter()
+
+const pendingCount = ref(0)
+let unsub: (() => void) | null = null
+
+// 🔁 Echtzeitbeobachtung der pending Users für Admins
+watchEffect((onCleanup) => {
+  if (auth.meta?.role === 'admin') {
+    unsub = watchPendingUsers((count) => (pendingCount.value = count))
+    onCleanup(() => {
+      if (unsub) unsub()
+      unsub = null
+      pendingCount.value = 0
+    })
+  } else {
+    if (unsub) unsub()
+    unsub = null
+    pendingCount.value = 0
+  }
+})
+
+async function logout() {
+  await auth.logout()
+  $q.notify({ message: 'Abgemeldet', color: 'info', position: 'top' })
+  router.push({ name: 'auth' })
+}
+
+function goAdmin() {
+  router.push({ name: 'admin' })
+}
+</script>
 
 <style scoped>
 .q-card-section {

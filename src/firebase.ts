@@ -1,8 +1,10 @@
 // src/firebase.ts
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { initializeApp, getApps, getApp } from 'firebase/app'
+import { getAuth, setPersistence, indexedDBLocalPersistence } from 'firebase/auth'
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from 'firebase/functions'
+import { getMessaging, isSupported } from 'firebase/messaging'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string,
@@ -13,8 +15,16 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID as string,
 };
 
-const app = initializeApp(firebaseConfig);
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig)
 
-export const auth = getAuth(app);
+export const auth = getAuth(app)
+setPersistence(auth, indexedDBLocalPersistence)
+
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions = getFunctions(app, 'us-central1')
+
+export async function getFirebaseMessaging() {
+  if (!(await isSupported())) return null
+  return getMessaging(app)
+}

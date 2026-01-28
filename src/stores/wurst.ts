@@ -14,13 +14,11 @@ import {
   orderBy,
   getDoc,
   setDoc,
-  runTransaction,
+  getDocFromServer,
 } from 'firebase/firestore'
 import {
   getDownloadURL,
-  getStorage,
   ref as sRef,
-  uploadBytes,
   deleteObject,
   uploadBytesResumable,
 } from 'firebase/storage'
@@ -31,16 +29,121 @@ export type Wurst = {
   name: string
   sausagesPerPack: number
   totalPacks: number
-  reservedPacks: number // per Function gepflegt
+  reservedPacks: number
   pricePerPack: number
   imageUrl: string
   imagePath: string
 }
 
+const DEFAULT_IMAGE_PATH = 'defaults/wurst.png' // <- muss in Storage existieren
+
 export const useWurstStore = defineStore('wurst', () => {
   const list = ref<Wurst[]>([])
   const loading = ref(false)
   const unsubRef = ref<null | (() => void)>(null)
+
+
+  // ✅ ADMIN: neue Wurst anlegen (Bild optional)
+  async function createWurst(payload: {
+    name: string
+    sausagesPerPack: number
+    totalPacks: number
+    pricePerPack: number
+    file?: File | null
+    onProgress?: (pct: number) => void
+  }) {
+    const auth = useAuthStore()
+
+    // 0) falls File vorhanden: validieren
+    if (payload.file && !payload.file.type?.startsWith('image/')) {
+      throw new Error('Nur Bilddateien erlaubt')
+    }
+
+    // 1) Firestore-Dokument anlegen (ID bekommen)
+    const docRef = await addDoc(collection(db, 'wuerste'), {
+      name: payload.name.trim(),
+      sausagesPerPack: Number(payload.sausagesPerPack),
+      totalPacks: Number(payload.totalPacks),
+      pricePerPack: Number(payload.pricePerPack),
+      reservedPacks: 0,
+      imageUrl: '',
+      imagePath: '',
+      createdAt: serverTimestamp(),
+      createdBy: auth.user?.uid ?? null,
+    })
+
+    // 2) Bild bestimmen: Upload oder Default
+    let finalPath = DEFAULT_IMAGE_PATH
+    let finalUrl = ''
+
+    // --- FALL A: kein File -> Default aus Storage nehmen
+    if (!payload.file) {
+      const defRef = sRef(storage, DEFAULT_IMAGE_PATH)
+      finalUrl = await getDownloadURL(defRef)
+
+      await updateDoc(doc(db, 'wuerste', docRef.id), {
+        imageUrl: finalUrl,
+        imagePath: finalPath,
+      })
+      return
+    }
+
+    // --- FALL B: File hochladen
+    const fileName = payload.file.name.replace(/\s+/g, '_')
+    finalPath = `wuerste/${docRef.id}/${fileName}`
+    const fileRef = sRef(storage, finalPath)
+
+    const task = uploadBytesResumable(fileRef, payload.file, {
+      contentType: payload.file.type || 'image/png',
+    })
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        task.on(
+          'state_changed',
+          (snap) => {
+            const pct = (snap.bytesTransferred / snap.totalBytes) * 100
+            payload.onProgress?.(Math.round(pct))
+          },
+          (err) => reject(err),
+          () => resolve(),
+        )
+      })
+
+      finalUrl = await getDownloadURL(fileRef)
+
+      await updateDoc(doc(db, 'wuerste', docRef.id), {
+        imageUrl: finalUrl,
+        imagePath: finalPath,
+      })
+    } catch (err) {
+      // Rollback bei Fehler
+      try {
+        await deleteObject(fileRef)
+      } catch {}
+      await deleteDoc(doc(db, 'wuerste', docRef.id))
+      throw err
+    }
+  }
+
+  async function deleteWurst(id: string, imagePath?: string) {
+    // ✅ Default-Bild nicht löschen
+    if (imagePath && imagePath !== DEFAULT_IMAGE_PATH) {
+      try {
+        await deleteObject(sRef(storage, imagePath))
+      } catch {
+        /* ignore */
+      }
+    }
+    await deleteDoc(doc(db, 'wuerste', id))
+  }
+
+  async function updateWurst(
+    id: string,
+    data: Partial<Pick<Wurst, 'pricePerPack' | 'totalPacks' | 'name' | 'sausagesPerPack'>>,
+  ) {
+    await updateDoc(doc(db, 'wuerste', id), data as any)
+  }
 
   function watchAll() {
     if (unsubRef.value) return
@@ -57,120 +160,72 @@ export const useWurstStore = defineStore('wurst', () => {
     }
   }
 
-  // ADMIN: neue Wurst anlegen (mit Bild)
-  async function createWurst(payload: {
-  name: string;
-  sausagesPerPack: number;
-  totalPacks: number;
-  pricePerPack: number;
-  file: File;
-  onProgress?: (pct: number) => void; // optional
-  }) {
-    const auth = useAuthStore();
+  // ✅ SUMME aller Reservierungen live beobachten (für Restbestand)
+  function watchReservedSum(wurstId: string, cb: (sum: number) => void) {
+    const qy = collection(db, 'wuerste', wurstId, 'reservations')
+    return onSnapshot(
+      qy,
+      (snap) => {
+        let sum = 0
+        snap.forEach((d) => (sum += Number((d.data() as any)?.quantity || 0)))
+        cb(sum)
+      },
+      (err) => {
+        console.error('watchReservedSum error:', err)
+        cb(0)
+      },
+    )
+  }
 
-    if (!payload.file) throw new Error("Bild fehlt");
-    if (!payload.file.type?.startsWith("image/")) throw new Error("Nur Bilddateien erlaubt");
-
-    // 1) Firestore-Dokument anlegen (ID bekommen)
-    const docRef = await addDoc(collection(db, "wuerste"), {
-      name: payload.name.trim(),
-      sausagesPerPack: Number(payload.sausagesPerPack),
-      totalPacks: Number(payload.totalPacks),
-      pricePerPack: Number(payload.pricePerPack),
-      reservedPacks: 0,
-      imageUrl: "",
-      imagePath: "",
-      createdAt: serverTimestamp(),
-      createdBy: auth.user?.uid ?? null,
-    });
-
-    const fileName = payload.file.name.replace(/\s+/g, "_");
-    const path = `wuerste/${docRef.id}/${fileName}`;
-    const fileRef = sRef(storage, path);
-
-    // 2) Upload mit korrektem contentType + Progress
-    const task = uploadBytesResumable(fileRef, payload.file, {
-      contentType: payload.file.type || "image/png",
-    });
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        task.on(
-          "state_changed",
-          (snap) => {
-            const pct = (snap.bytesTransferred / snap.totalBytes) * 100;
-            payload.onProgress?.(Math.round(pct));
-          },
-          (err) => reject(err),
-          () => resolve()
-        );
-      });
-
-      // 3) URL holen & Firestore aktualisieren
-      const url = await getDownloadURL(fileRef);
-      await updateDoc(doc(db, "wuerste", docRef.id), {
-        imageUrl: url,
-        imagePath: path,
-      });
-    } catch (err) {
-      // Rollback bei Fehler
-      try { await deleteObject(fileRef); } catch {}
-      await deleteDoc(doc(db, "wuerste", docRef.id));
-      throw err;
+  // ✅ Eigene Reservierung live beobachten (für Prefill nach Reload / andere Geräte)
+  function watchMyReservation(wurstId: string, cb: (qty: number) => void) {
+    const auth = useAuthStore()
+    const uid = auth.user?.uid
+    if (!uid) {
+      cb(0)
+      return () => {}
     }
+    const rRef = doc(db, 'wuerste', wurstId, 'reservations', uid)
+    return onSnapshot(
+      rRef,
+      (snap) => cb(snap.exists() ? Number((snap.data() as any)?.quantity || 0) : 0),
+      (err) => {
+        console.error('watchMyReservation error:', err)
+        cb(0)
+      },
+    )
   }
 
-  // Optional: beim Löschen Bild mit löschen
-  async function deleteWurst(id: string, imagePath?: string) {
-    if (imagePath) {
-      try {
-        await deleteObject(sRef(storage, imagePath))
-      } catch {
-        /* ignore */
-      }
-    }
-    await deleteDoc(doc(db, 'wuerste', id))
+  // ✅ (dein createWurst bleibt wie er ist)
+
+  async function setReservation(wurstId: string, quantity: number) {
+    const auth = useAuthStore()
+    if (!auth.user) throw new Error('Nicht eingeloggt')
+    const uid = auth.user.uid
+
+    const rRef = doc(db, 'wuerste', wurstId, 'reservations', uid)
+    const nextQty = Math.max(0, Math.floor(quantity))
+
+    await setDoc(rRef, { uid, quantity: nextQty, updatedAt: serverTimestamp() }, { merge: true })
+
+    // Server-Check (optional, aber gut)
+    const snap = await getDocFromServer(rRef)
+    if (!snap.exists()) throw new Error('Reservierung wurde nicht am Server gespeichert.')
   }
 
-  // ADMIN: bearbeiten
-  async function updateWurst(
-    id: string,
-    data: Partial<Pick<Wurst, 'pricePerPack' | 'totalPacks' | 'name' | 'sausagesPerPack'>>,
-  ) {
-    await updateDoc(doc(db, 'wuerste', id), data as any)
-  }
-
-  // USER: Reservierung setzen (überschreiben)
- async function setReservation(wurstId: string, quantity: number) {
-  const auth = useAuthStore();
-  if (!auth.user) throw new Error("Nicht eingeloggt");
-  const uid = auth.user.uid;
-
-  const rRef = doc(db, "wuerste", wurstId, "reservations", uid);
-  const nextQty = Math.max(0, Math.floor(quantity));
-  await setDoc(
-    rRef,
-    { uid, quantity: nextQty, updatedAt: serverTimestamp() },
-    { merge: true }
-  );
-}
-
-// Live: Summe aller Reservierungen für eine Wurst beobachten
-function watchReservedSum(wurstId: string, cb: (sum: number) => void) {
-  const qy = collection(db, "wuerste", wurstId, "reservations");
-  return onSnapshot(query(qy), (snap) => {
-    let sum = 0;
-    snap.forEach((d) => { sum += (d.data().quantity || 0); });
-    cb(sum);
-  });
-}
-
-  // User-spezifische Reservierung laden (für Vorbelegung)
+  // ✅ Prefill verlässlicher: erst Server versuchen, dann Cache fallback
   async function getMyReservation(wurstId: string): Promise<number> {
     const auth = useAuthStore()
     if (!auth.user) return 0
-    const snap = await getDoc(doc(db, 'wuerste', wurstId, 'reservations', auth.user.uid))
-    return snap.exists() ? (snap.data().quantity as number) : 0
+
+    const rRef = doc(db, 'wuerste', wurstId, 'reservations', auth.user.uid)
+    try {
+      const snap = await getDocFromServer(rRef)
+      return snap.exists() ? Number((snap.data() as any)?.quantity || 0) : 0
+    } catch {
+      const snap = await getDoc(rRef)
+      return snap.exists() ? Number((snap.data() as any)?.quantity || 0) : 0
+    }
   }
 
   const items = computed(() =>
@@ -180,16 +235,77 @@ function watchReservedSum(wurstId: string, cb: (sum: number) => void) {
     })),
   )
 
+  async function updateWurstImage(payload: {
+  id: string
+  file: File
+  currentImagePath?: string
+  onProgress?: (pct: number) => void
+}) {
+  if (!payload.file.type?.startsWith('image/')) throw new Error('Nur Bilddateien erlaubt')
+
+  const fileName = payload.file.name.replace(/\s+/g, '_')
+  const newPath = `wuerste/${payload.id}/${Date.now()}_${fileName}`
+  const fileRef = sRef(storage, newPath)
+
+  const task = uploadBytesResumable(fileRef, payload.file, {
+    contentType: payload.file.type || 'image/png',
+  })
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      task.on(
+        'state_changed',
+        (snap) => {
+          const pct = (snap.bytesTransferred / snap.totalBytes) * 100
+          payload.onProgress?.(Math.round(pct))
+        },
+        reject,
+        () => resolve(),
+      )
+    })
+
+    const newUrl = await getDownloadURL(fileRef)
+
+    await updateDoc(doc(db, 'wuerste', payload.id), {
+      imageUrl: newUrl,
+      imagePath: newPath,
+    })
+
+    // altes Bild löschen (außer Default, und nicht das neue)
+    const old = payload.currentImagePath
+    if (old && old !== DEFAULT_IMAGE_PATH && old !== newPath) {
+      try {
+        await deleteObject(sRef(storage, old))
+      } catch {
+        /* ignore */
+      }
+    }
+
+    return { imageUrl: newUrl, imagePath: newPath }
+  } catch (err) {
+    // Upload fehlgeschlagen -> neues Objekt wieder löschen
+    try {
+      await deleteObject(fileRef)
+    } catch {
+      /* ignore */
+    }
+    throw err
+  }
+}
+
+
   return {
     items,
     loading,
     watchAll,
     stop,
     createWurst,
+    updateWurstImage,
     updateWurst,
     deleteWurst,
     setReservation,
     getMyReservation,
     watchReservedSum,
+    watchMyReservation,
   }
 })

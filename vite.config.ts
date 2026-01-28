@@ -16,10 +16,13 @@ export default defineConfig({
     }),
     VitePWA({
       registerType: 'autoUpdate',
+      strategies: 'injectManifest',
+      srcDir: 'src',          // wo dein SW liegt
+      filename: 'sw.ts',      // oder sw.js
       includeAssets: ['favicon.ico', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: 'Geros Wurst',
-        short_name: 'Geros Wurst',
+        name: 'Geros Wild',
+        short_name: 'Geros Wild',
         description: 'Würste von Gero reservieren',
         theme_color: '#355E3B',
         background_color: '#2A2F2A',

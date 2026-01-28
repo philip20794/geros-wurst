@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { reactive, ref, watch, watchEffect } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useQuasar } from 'quasar'
 
@@ -9,6 +9,7 @@ const mode = ref<Mode>('login')
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const $q = useQuasar()
 
 const form = reactive({
@@ -19,6 +20,9 @@ const form = reactive({
 const showPwd = ref(false)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const resetOpen = ref(false)
+const resetLoading = ref(false)
+const resetEmail = ref('')
 
 // einfache Validierungsregeln (Quasar-Style)
 const rules = {
@@ -32,6 +36,45 @@ watch(mode, (m) => {
   error.value = null
   if (m === 'login') form.displayName = ''
 })
+
+watchEffect(() => {
+  if (auth.user != null) {
+    afterLoginNavigate()
+  }
+})
+
+async function afterLoginNavigate() {
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+  await router.replace(redirect)
+}
+
+async function doReset() {
+  try {
+    resetLoading.value = true
+    const email = (resetEmail.value || form.email || '').trim()
+    if (!email || rules.email(email) !== true) {
+      $q.notify({ type: 'warning', message: 'Gültige E-Mail angeben.' })
+      return
+    }
+    await auth.resetPassword(email)
+    $q.notify({
+      type: 'positive',
+      message: 'Passwort-Reset-Link gesendet. Bitte Posteingang prüfen.',
+    })
+    resetOpen.value = false
+  } catch (e: any) {
+    const code = e?.code
+    if (code === 'auth/user-not-found') {
+      $q.notify({ type: 'warning', message: 'Kein Konto mit dieser E-Mail gefunden.' })
+    } else if (code === 'auth/invalid-email') {
+      $q.notify({ type: 'warning', message: 'Kein gültige E-Mail adresse.' })
+    } else {
+      $q.notify({ type: 'negative', message: e?.message || 'Fehler beim Senden.' })
+    }
+  } finally {
+    resetLoading.value = false
+  }
+}
 
 async function submit() {
   loading.value = true
@@ -70,7 +113,7 @@ async function submit() {
   <q-page class="flex flex-center">
     <q-card flat style="width: 100%; max-width: 480px" class="card-wood">
       <q-card-section class="bg-primary text-white">
-        <div class="text-h5">Geros Wurst</div>
+        <div class="text-h5">Geros Wild</div>
         <div class="text-subtitle2">Anmelden oder Konto erstellen</div>
       </q-card-section>
 
@@ -141,6 +184,18 @@ async function submit() {
             {{ error }}
           </q-banner>
 
+          
+      <div v-if="mode === 'login'" class="no-margin q-px-lg">
+        <q-btn
+          flat
+          no-caps
+          color="accent"
+          class="q-px-none"
+          label="Passwort zurücksetzen"
+          @click="doReset"
+        />
+      </div>
+
           <div class="row justify-end q-gutter-sm">
             <q-btn no-caps
               color="primary"
@@ -152,6 +207,7 @@ async function submit() {
           </div>
         </q-form>
       </q-card-section>
+
 
       <q-separator />
 

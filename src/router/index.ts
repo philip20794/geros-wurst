@@ -1,48 +1,100 @@
 // src/router/index.ts
-import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
-import { useAuthStore } from "@/stores/auth";
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
-  { path: "/auth", name: "auth", component: () => import("@/views/AuthView.vue") },
-  { path: "/pending", name: "pending", component: () => import("@/views/PendingView.vue") },
-  { path: "/blocked", name: "blocked", component: () => import("@/views/BlockedView.vue") },
-  { path: "/admin", name: "admin", meta: { requiresAdmin: true }, component: () => import("@/views/AdminView.vue") },
-  { path: "/", name: "home", meta: { requiresApproved: true }, component: () => import("@/views/HomeView.vue") },
-  { path: "/wurst/new", name: "wurst-new", meta: { requiresAdmin: true }, component: () => import("@/views/WurstNewView.vue") }
-];
+  { path: '/auth', name: 'auth', component: () => import('@/views/AuthView.vue') },
+  { path: '/pending', name: 'pending', component: () => import('@/views/PendingView.vue') },
+  { path: '/blocked', name: 'blocked', component: () => import('@/views/BlockedView.vue') },
+  { path: '/admin', name: 'admin', meta: { requiresAdmin: true }, component: () => import('@/views/AdminView.vue') },
+
+  // ✅ Tabs als eigene URLs
+  { path: '/', name: 'home', meta: { requiresApproved: true }, component: () => import('@/views/HomeView.vue') },
+  { path: '/umfragen', name: 'home-umfragen', meta: { requiresApproved: true }, component: () => import('@/views/HomeView.vue') },
+  { path: '/wuensche', name: 'home-wuensche', meta: { requiresApproved: true }, component: () => import('@/views/HomeView.vue') },
+]
 
 const router = createRouter({
   history: createWebHistory(),
   routes,
-});
+})
 
-// src/router/index.ts
-router.beforeEach((to) => {
+// kleine Helferfunktion: auf Flag warten
+function waitUntil(predicate: () => boolean) {
+  return new Promise<void>((resolve) => {
+    if (predicate()) return resolve()
+    const stop = watch(
+      predicate,
+      (ok) => {
+        if (ok) {
+          stop()
+          resolve()
+        }
+      },
+      { immediate: true },
+    )
+  })
+}
+
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
-  // noch kein State geladen → Seite laden lassen (meist nur beim Refresh)
-  if (auth.loading) return true
+  await waitUntil(
+    () => (auth as any).ready === true || auth.loading === false || auth.user !== undefined,
+  )
 
-  // Nicht eingeloggt → nur /auth erlaubt
-  if (!auth.user && to.name !== 'auth') return { name: 'auth' }
-
-  const status = auth.meta?.status
+  const user = auth.user
   const role = auth.meta?.role
+  const status = auth.meta?.status
 
-  // Geblockt
-  if (status === 'blocked' && to.name !== 'blocked') return { name: 'blocked' }
+  const requiresAdmin = to.matched.some((r) => r.meta.requiresAdmin)
+  const requiresApproved = to.matched.some((r) => r.meta.requiresApproved)
 
-  // Pending
-  if (status === 'pending' && to.name !== 'pending' && to.name !== 'auth') return { name: 'pending' }
+  // nicht eingeloggt
+  if (!user) {
+    if (to.name !== 'auth') return { name: 'auth', query: { redirect: to.fullPath } }
+    return true
+  }
 
-  // Admin-Pfad
-  if (to.meta.requiresAdmin && role !== 'admin') return { name: 'pending' }
+  // Eingeloggt: /auth nicht mehr anzeigen, aber redirect BEWAHREN
+  if (to.name === 'auth') {
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/'
 
-  // Approved-Pfad
-  if (to.meta.requiresApproved && status !== 'approved' && role !== 'admin') return { name: 'pending' }
+    // wenn status noch nicht geladen ist -> lieber auf redirect warten? (optional)
+    if (status === 'blocked') return { name: 'blocked', query: { redirect } }
+    if (status === 'pending') return { name: 'pending', query: { redirect } }
+
+    // approved/admin -> zurück zur gewünschten Seite
+    if (role === 'admin' || status === 'approved') return redirect
+
+    // status unbekannt -> sicherheitshalber pending + redirect behalten
+    return { name: 'pending', query: { redirect } }
+  }
+
+
+  // auth Seite bei login: redirect beachten
+  if (to.name === 'auth') {
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : null
+    if (redirect) return redirect
+
+    if (role === 'admin' || status === 'approved') return { name: 'home' }
+    if (status === 'blocked') return { name: 'blocked' }
+    return { name: 'pending' }
+  }
+
+  if (status === 'blocked' && to.name !== 'blocked') {
+    return { name: 'blocked', query: { redirect: to.fullPath } }
+  }
+
+  if (requiresApproved && !(status === 'approved' || role === 'admin')) {
+    return { name: 'pending', query: { redirect: to.fullPath } }
+  }
+
+  if (requiresAdmin && role !== 'admin') return { name: 'home' }
 
   return true
 })
 
 
-export default router;
+export default router

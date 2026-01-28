@@ -1,15 +1,63 @@
-<script setup lang="ts">
-import HeaderBar from "@/components/HeaderBar.vue";
-</script>
-
 <template>
   <q-layout view="lHh Lpr lFf">
     <HeaderBar />
     <q-page-container>
       <router-view />
     </q-page-container>
+    <OfflineBlocker />
   </q-layout>
 </template>
+
+<script setup lang="ts">
+import HeaderBar from "@/components/HeaderBar.vue"
+import OfflineBlocker from '@/components/OfflineBlocker.vue'
+import { onMounted, watch } from 'vue'
+import { useQuasar } from 'quasar'
+import { useAuthStore } from '@/stores/auth'
+import { initPwaInstallListener } from '@/services/pwaInstall'
+import { runInstallPrompt } from '@/services/appPrompts'
+import { ensurePushTokenRegistered } from "./services/push"
+
+const $q = useQuasar()
+const auth = useAuthStore()
+
+onMounted(() => {
+  initPwaInstallListener(() => runInstallPrompt($q))
+  runInstallPrompt($q) // iOS-Fall kann sofort gehen
+  ensurePushTokenRegistered().catch(() => {})
+})
+
+watch(
+  () => [auth.user, auth.meta?.role, auth.meta?.status],
+  () => runInstallPrompt($q),
+  { immediate: true }
+)
+
+// nach Login/Role-Load etc.
+watch(
+  () => auth.user?.uid,
+  async (uid) => {
+    if (!uid) return
+    await ensurePushTokenRegistered().catch(() => {})
+  },
+  { immediate: true },
+)
+
+// optional: wenn Tab wieder aktiv wird
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    ensurePushTokenRegistered().catch(() => {})
+  }
+})
+
+// optional: nach SW update / controllerchange
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    ensurePushTokenRegistered().catch(() => {})
+  })
+}
+</script>
+
 
 <style>
 /* Fixe Holztextur unter allen Inhalten der Card */
@@ -70,6 +118,22 @@ import HeaderBar from "@/components/HeaderBar.vue";
   opacity: .85;
 }
 
+:root{
+  --sat: env(safe-area-inset-top);
+  --sar: env(safe-area-inset-right);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+}
 
+.app {
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+
+input, textarea, select, button {
+  font-size: 16px !important;
+}
 </style>
 

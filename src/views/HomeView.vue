@@ -1,73 +1,90 @@
+<template>
+
+      <q-page class="column no-wrap">
+        <q-tab-panels v-model="tab" animated swipeable class="col bg-transparent">
+          <q-tab-panel name="wild" class="q-pa-md">
+            <HomeTabWild />
+          </q-tab-panel>
+
+          <q-tab-panel name="polls" class="q-pa-md">
+            <HomeTabUmfragen />
+          </q-tab-panel>
+
+          <q-tab-panel name="wishes" class="q-pa-md">
+            <HomeTabWuensche />
+          </q-tab-panel>
+        </q-tab-panels>
+      </q-page>
+    <q-footer elevated class="bottom-tabs">
+      <q-tabs
+        v-model="tab"
+        dense
+        align="justify"
+        class="text-white full-width"
+        active-color="accent"
+        indicator-color="accent"
+        narrow-indicator
+      >
+        <q-tab name="wild" icon="outdoor_grill" label="Wild" />
+        <q-tab name="polls" icon="poll" label="Umfragen" />
+        <q-tab name="wishes" icon="favorite" label="Wünsche" />
+      </q-tabs>
+    </q-footer>
+</template>
+
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
-import { useRouter } from "vue-router";
-import { useQuasar } from "quasar";
-import { useAuthStore } from "@/stores/auth";
-import { useWurstStore, type Wurst } from "@/stores/wurst";
-import WurstCard from "@/components/WurstCard.vue";
-import WurstEditDialog from "@/components/WurstEditDialog.vue";
+import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import HomeTabWild from '@/components/home/HomeTabWild.vue'
+import HomeTabUmfragen from '@/components/home/HomeTabUmfragen.vue'
+import HomeTabWuensche from '@/components/home/HomeTabWuensche.vue'
 
-const auth = useAuthStore();
-const store = useWurstStore();
-const router = useRouter();
-const $q = useQuasar();
+const route = useRoute()
+const router = useRouter()
 
-const editOpen = ref(false);
-const editing = ref<Wurst | null>(null);
+const tab = ref<'wild' | 'polls' | 'wishes'>('wild')
 
-onMounted(() => { store.watchAll(); });
-onUnmounted(() => { store.stop(); });
+// verhindert Loop (Route->Tab triggert Tab->Route)
+let syncingFromRoute = false
 
-function toNewWurst() { router.push({ name: "wurst-new" }); }
-
-function adminEdit(w: Wurst) {
-  editing.value = w;
-  editOpen.value = true;
+function routeNameToTab(name: any) {
+  if (name === 'home-umfragen') return 'polls'
+  if (name === 'home-wuensche') return 'wishes'
+  return 'wild'
 }
-async function onSaveEdit(data: { name: string; sausagesPerPack: number; totalPacks: number; pricePerPack: number }) {
-  if (!editing.value) return;
-  await store.updateWurst(editing.value.id, data);
-  $q.notify({ type: "info", message: "Wurst aktualisiert" });
+function tabToRouteName(t: any) {
+  if (t === 'polls') return 'home-umfragen'
+  if (t === 'wishes') return 'home-wuensche'
+  return 'home'
 }
-async function adminDelete(w: Wurst) {
-  $q.dialog({
-    class: "dialog-wood",
-    title: "Löschen?",
-    message: `${w.name} wirklich löschen?`,
-    ok: { color: "negative", label: "Löschen" },
-    cancel: true,
-    persistent: true
-  }).onOk(async () => {
-    await store.deleteWurst(w.id, w.imagePath);
-    $q.notify({ type: "negative", message: "Gelöscht" });
-  });
-}
+
+// Route -> Tab
+watch(
+  () => route.name,
+  (name) => {
+    syncingFromRoute = true
+    tab.value = routeNameToTab(name)
+    // nach dem Tick wieder freigeben
+    queueMicrotask(() => (syncingFromRoute = false))
+  },
+  { immediate: true },
+)
+
+// Tab -> Route (nur bei User-Aktion / Swipe)
+watch(tab, (t) => {
+  if (syncingFromRoute) return
+  const target = tabToRouteName(t)
+  if (route.name !== target) router.replace({ name: target })
+})
 </script>
 
-<template>
-  <q-page padding>
-    <div class="row items-center justify-between q-mb-md">
-      <q-btn no-caps
-        v-if="auth.meta?.role === 'admin'"
-        color="primary" icon="add" label="Neue Wurst"
-        @click="toNewWurst" unelevated
-      />
-    </div>
 
-    <div class="row q-col-gutter-lg">
-      <div v-for="w in store.items" :key="w.id" class="col-12 col-md-6 col-lg-4">
-        <WurstCard
-          :wurst="w"
-          @edit="adminEdit"
-          @delete="adminDelete"
-        />
-      </div>
-    </div>
-
-    <WurstEditDialog
-      v-model="editOpen"
-      :wurst="editing"
-      @save="onSaveEdit"
-    />
-  </q-page>
-</template>
+<style scoped>
+.bottom-tabs {
+  background: #355E3B;
+  width: 100vw;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+}
+</style>
