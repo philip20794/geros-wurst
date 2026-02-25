@@ -5,6 +5,8 @@ admin.initializeApp()
 const db = admin.firestore()
 
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
+const { onSchedule } = require('firebase-functions/v2/scheduler')
+const { logger } = require('firebase-functions')
 
 function chunkArray(arr, size) {
   const out = []
@@ -327,3 +329,100 @@ exports.copyUmfrageImageToWurst = onCall({ region: 'us-central1' }, async (reque
 
   return { ok: true, imagePath: destPath }
 })
+
+exports.cleanupPickedUpPickupsDaily = onSchedule(
+  {
+    schedule: 'every day 08:50',
+    timeZone: 'Europe/Berlin',
+    region: 'us-central1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+    maxInstances: 1,
+  },
+  async (event) => {
+    const cutoffMs = Date.now() - 24 * 60 * 60 * 1000
+    const cutoff = admin.firestore.Timestamp.fromMillis(cutoffMs)
+
+    // 1) UIDs sammeln, die mindestens ein "aktives" Pickup haben (state != pickedUp)
+    //    Diese UIDs blockieren das Löschen.
+    const activeUids = new Set()
+
+    // Pagination (falls viele Docs)
+    const PAGE = 5000
+    let lastDoc = null
+
+    while (true) {
+      let q = db
+        .collectionGroup('pickups')
+        .where('state', '!=', 'pickedUp')
+        .orderBy('state')          // nötig bei "!="
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .select('uid')
+        .limit(PAGE)
+
+      if (lastDoc) q = q.startAfter(lastDoc)
+
+      const snap = await q.get()
+      if (snap.empty) break
+
+      for (const d of snap.docs) {
+        const uid = d.get('uid')
+        if (typeof uid === 'string' && uid) activeUids.add(uid)
+      }
+
+      lastDoc = snap.docs[snap.docs.length - 1]
+      if (snap.size < PAGE) break
+    }
+
+    // 2) Kandidaten: pickedUp + älter als 24h
+    let deleted = 0
+    let scannedCandidates = 0
+    lastDoc = null
+
+    while (true) {
+      let q = db
+        .collectionGroup('pickups')
+        .where('state', '==', 'pickedUp')
+        .where('pickedUpAt', '<=', cutoff)
+        .orderBy('pickedUpAt')     // nötig wegen "<="
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .select('uid', 'pickedUpAt')
+        .limit(PAGE)
+
+      if (lastDoc) q = q.startAfter(lastDoc)
+
+      const snap = await q.get()
+      if (snap.empty) break
+
+      scannedCandidates += snap.size
+
+      // refs sammeln, die gelöscht werden dürfen
+      const refsToDelete = []
+      for (const doc of snap.docs) {
+        const uid = doc.get('uid')
+        if (typeof uid !== 'string' || !uid) continue
+
+        // Nur löschen, wenn der User KEINEN aktiven Pickup hat
+        if (!activeUids.has(uid)) refsToDelete.push(doc.ref)
+      }
+
+      // In Batches löschen (max. 500 Ops; ich nehme 450 als Puffer)
+      for (const chunk of chunkArray(refsToDelete, 450)) {
+        const batch = db.batch()
+        chunk.forEach((ref) => batch.delete(ref))
+        await batch.commit()
+        deleted += chunk.length
+      }
+
+      lastDoc = snap.docs[snap.docs.length - 1]
+      if (snap.size < PAGE) break
+    }
+
+    logger.info('cleanupPickedUpPickupsDaily done', {
+      cutoff: new Date(cutoffMs).toISOString(),
+      activeUidCount: activeUids.size,
+      scannedCandidates,
+      deleted,
+    })
+  }
+)
