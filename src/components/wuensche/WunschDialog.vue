@@ -15,18 +15,23 @@
 
       <q-separator />
 
-      <q-form ref="formRef" @submit.prevent="submit">
-        <q-card-section class="q-gutter-sm">
+      <q-form ref="formRef" 
+      @submit.prevent="submit" 
+      @keydown.enter.exact.prevent>
+        <q-card-section class="q-gutter-sm card-wood">
           <!-- Details -->
           <div>
             <div class="text-subtitle2 q-mb-xs">Details</div>
             <q-input
               v-model.trim="form.name"
+              type="textarea"
+              autogrow
               outlined
               dense
               autocomplete="off"
               :rules="[required]"
               :disable="busy"
+              @keydown.enter.stop
             >
               <template #prepend><q-icon name="label" /></template>
             </q-input>
@@ -42,12 +47,10 @@
           />
         </q-card-section>
 
-        <q-separator />
-
-        <q-card-actions align="right" class="q-pa-md">
+        <q-card-actions align="right" class="q-pa-md bg-primary">
           <q-btn flat no-caps label="Abbrechen" :disable="busy" @click="close" />
           <q-btn
-            color="primary"
+            color="dark"
             no-caps
             unelevated
             :label="isEdit ? 'Speichern' : 'Anlegen'"

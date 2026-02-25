@@ -7,6 +7,7 @@ import { getDownloadURL, ref as sRef, uploadBytesResumable } from 'firebase/stor
 export async function convertUmfrageToWurst(args: {
   umfrageId: string
   name: string
+  category: string
   sausagesPerPack: number
   totalPacks: number
   pricePerPack: number

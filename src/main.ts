@@ -17,20 +17,6 @@ import quasarLangDe from 'quasar/lang/de' // <- wichtig
 
 import { useAuthStore } from '@/stores/auth'
 
-const updateSW = registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    Dialog.create({
-      class: 'dialog-wood',
-      title: 'Update verfügbar',
-      message: 'Eine neue Version ist bereit. Jetzt aktualisieren?',
-      ok: { label: 'Aktualisieren' },
-      cancel: { label: 'Später', flat: true },
-    }).onOk(() => updateSW(true))
-  },
-  onOfflineReady() {},
-})
-
 setupForegroundMessageHandler((payload) => {
   const title = payload.data?.title ?? payload.notification?.title ?? 'Neu'
   const body = payload.data?.body ?? payload.notification?.body ?? ''
@@ -48,6 +34,20 @@ const pinia = createPinia()
 app.use(pinia).use(router).use(Quasar, {
   plugins: { Notify, Dialog, Loading },
   lang: quasarLangDe, 
+})
+
+const updateSW = registerSW({
+  immediate: true,
+  onNeedRefresh() {
+    Dialog.create({
+      class: 'dialog-wood',
+      title: 'Update verfügbar',
+      message: 'Eine neue Version ist bereit. Jetzt aktualisieren?',
+      ok: { label: 'Aktualisieren' },
+      cancel: { label: 'Später', flat: true },
+    }).onOk(() => updateSW(true))
+  },
+  onOfflineReady() {},
 })
 
 // Starte den Listener *vor* mount:

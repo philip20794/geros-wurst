@@ -121,19 +121,26 @@ let unsub: (() => void) | null = null
 
 // 🔁 Echtzeitbeobachtung der pending Users für Admins
 watchEffect((onCleanup) => {
-  if (auth.meta?.role === 'admin') {
-    unsub = watchPendingUsers((count) => (pendingCount.value = count))
-    onCleanup(() => {
-      if (unsub) unsub()
-      unsub = null
-      pendingCount.value = 0
-    })
-  } else {
-    if (unsub) unsub()
+  // ✅ nur wenn wirklich eingeloggt + meta geladen + admin
+  const canWatch = !!auth.user && auth.meta?.role === 'admin' && auth.meta?.status === 'approved'
+
+  if (unsub) {
+    unsub()
     unsub = null
+  }
+
+  if (canWatch) {
+    unsub = watchPendingUsers((count) => (pendingCount.value = count))
+  } else {
     pendingCount.value = 0
   }
+
+  onCleanup(() => {
+    if (unsub) unsub()
+    unsub = null
+  })
 })
+
 
 async function logout() {
   await auth.logout()

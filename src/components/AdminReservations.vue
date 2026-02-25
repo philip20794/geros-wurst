@@ -1,54 +1,56 @@
 <template>
-  <q-expansion-item icon="list" label="Reservierungen anzeigen" dense class="wood-surface">
-    <q-table
-      class="wood-surface q-ma-md"
-      :rows="tableRows"
-      :columns="columns"
-      row-key="uid"
-      flat
-      hide-pagination
-      :rows-per-page-options="[0]"
-      no-data-label="Keine Reservierungen"
-    >
-      <!-- Abgeholt checkbox -->
-      <template #body-cell-picked="p">
-        <q-td :props="p">
-          <q-checkbox
-            dense
-            :model-value="!!pickedMap[p.row.uid]"
-            @update:model-value="(v:boolean) => setPicked(p.row.uid, v)"
-          />
-        </q-td>
-      </template>
+  <q-expansion-item v-model="opened" icon="list" label="Reservierungen anzeigen" dense class="wood-surface">
+    <template v-if="opened">
+      <!-- Header: responsive -->
+      <div class="ar-head" :class="{ 'is-mobile': isMobile }">
+        <q-tabs v-model="tab" dense inline-label class="ar-tabs">
+          <q-tab name="open" icon="schedule" label="Reserviert" no-caps />
+          <q-tab name="picked" icon="done_all" label="Abgeholt" no-caps />
+        </q-tabs>
+      </div>
 
-      <!-- User cell -->
-      <template #body-cell-user="p">
-        <q-td :props="p">
-          <div class="row items-center q-gutter-sm" :class="{ 'picked-row': p.row.picked }">
-            <q-avatar size="20px" color="primary" text-color="white">
-              {{
-                (p.row.displayName || p.row.email || p.row.uid || 'U')
-                  .charAt(0)
-                  .toUpperCase()
-              }}
-            </q-avatar>
-            <div>{{ p.row.displayName || p.row.email || p.row.uid }}</div>
-          </div>
-        </q-td>
-      </template>
+      <q-separator />
 
-      <!-- Quantity cell -->
-      <template #body-cell-quantity="p">
-        <q-td :props="p" class="text-right">
-          <div :class="{ 'picked-row': p.row.picked }">
-            {{ p.row.quantity }}
-          </div>
-        </q-td>
-      </template>
+      <!-- ✅ Mobile: LIST view -->
+      <div v-if="isMobile" class="q-px-md q-pt-sm">
+        <q-list bordered separator class="rounded-borders">
+          <q-item v-if="tableRows.length === 0">
+            <q-item-section class="text-caption opacity-75"> Keine Einträge </q-item-section>
+          </q-item>
 
-      <!-- Totals -->
-      <template #bottom>
-        <div class="row justify-end q-pa-sm q-gutter-md full-width">
+          <q-item v-for="row in tableRows" :key="row.id" class="q-py-sm">
+            <q-item-section>
+              <div class="row items-center no-wrap">
+                <q-avatar size="26px" color="primary" text-color="white" class="q-mr-sm">
+                  {{ (row.displayName || row.email || row.uid || 'U').charAt(0).toUpperCase() }}
+                </q-avatar>
+
+                <div class="col">
+                  <div class="text-subtitle2 ellipsis" :class="{ 'picked-row': row.picked }">
+                    {{ row.displayName || row.email || row.uid }}
+                  </div>
+
+                  <div class="text-caption opacity-70">
+                    Menge: <b>{{ row.quantity }}</b>
+                    <span v-if="showPrices" class="q-ml-sm">· {{ fmt(row.price) }}</span>
+                  </div>
+                </div>
+              </div>
+            </q-item-section>
+
+            <q-item-section side>
+              <q-checkbox
+                dense
+                :model-value="!!row.picked"
+                :disable="isBusy(row.id)"
+                @update:model-value="(v: boolean) => onTogglePicked(row, v)"
+              />
+            </q-item-section>
+          </q-item>
+        </q-list>
+
+        <!-- Totals (mobile) -->
+        <div class="ar-bottom q-mt-sm">
           <div class="text-caption">
             Offen: <b>{{ totalQtyOpen }}</b>
           </div>
@@ -58,34 +60,157 @@
           <div class="text-caption opacity-75">
             Gesamt: <b>{{ totalQtyAll }}</b>
           </div>
+
+          <div v-if="showPrices" class="text-caption opacity-75">
+            · Offen: <b>{{ fmt(totalPriceOpen) }}</b>
+          </div>
+          <div v-if="showPrices" class="text-caption opacity-75">
+            Abgeholt: <b>{{ fmt(totalPricePicked) }}</b>
+          </div>
+          <div v-if="showPrices" class="text-caption opacity-75">
+            Gesamt: <b>{{ fmt(totalPriceAll) }}</b>
+          </div>
         </div>
+      </div>
 
-        
-      </template>
-    </q-table>
+      <!-- ✅ Desktop: TABLE view -->
+      <div v-else class="ar-table-wrap">
+        <q-table
+          class="wood-surface q-ma-md"
+          :rows="tableRows"
+          :columns="columns"
+          row-key="id"
+          flat
+          hide-pagination
+          :rows-per-page-options="[0]"
+          no-data-label="Keine Einträge"
+          dense
+        >
+          <!-- Abgeholt checkbox -->
+          <template #body-cell-picked="p">
+            <q-td :props="p">
+              <q-checkbox
+                dense
+                :model-value="!!p.row.picked"
+                :disable="isBusy(p.row.id)"
+                @update:model-value="(v: boolean) => onTogglePicked(p.row, v)"
+              />
+            </q-td>
+          </template>
 
-    <q-btn
-      no-caps
-      color="primary"
-      icon="notifications_active"
-      label="Erinnerung an Nicht-Abgeholte"
-      :disable="notPickedUids.length === 0 || sending"
-      :loading="sending"
-      class="q-mb-sm"
-      @click="sendReminderToNotPicked"
-    />
+          <!-- User cell -->
+          <template #body-cell-user="p">
+            <q-td :props="p">
+              <div class="row items-center q-gutter-sm" :class="{ 'picked-row': p.row.picked }">
+                <q-avatar size="20px" color="primary" text-color="white">
+                  {{ (p.row.displayName || p.row.email || p.row.uid || 'U').charAt(0).toUpperCase() }}
+                </q-avatar>
+                <div class="ellipsis">
+                  {{ p.row.displayName || p.row.email || p.row.uid }}
+                </div>
+              </div>
+            </q-td>
+          </template>
 
+          <!-- Quantity cell -->
+          <template #body-cell-quantity="p">
+            <q-td :props="p" class="text-right">
+              <div :class="{ 'picked-row': p.row.picked }">
+                {{ p.row.quantity }}
+              </div>
+            </q-td>
+          </template>
 
-    <div style="height: 8px;" />
+          <!-- Totals -->
+          <template #bottom>
+            <div class="ar-bottom">
+              <div class="text-caption">
+                Offen: <b>{{ totalQtyOpen }}</b>
+              </div>
+              <div class="text-caption opacity-75">
+                Abgeholt: <b>{{ totalQtyPicked }}</b>
+              </div>
+              <div class="text-caption opacity-75">
+                Gesamt: <b>{{ totalQtyAll }}</b>
+              </div>
+
+              <div v-if="showPrices" class="text-caption opacity-75">
+                · Offen: <b>{{ fmt(totalPriceOpen) }}</b>
+              </div>
+              <div v-if="showPrices" class="text-caption opacity-75">
+                Abgeholt: <b>{{ fmt(totalPricePicked) }}</b>
+              </div>
+              <div v-if="showPrices" class="text-caption opacity-75">
+                Gesamt: <b>{{ fmt(totalPriceAll) }}</b>
+              </div>
+            </div>
+          </template>
+        </q-table>
+      </div>
+
+      <q-btn
+        v-if="tab === 'open'"
+        no-caps
+        color="primary"
+        icon="notifications_active"
+        label="Erinnerung an Nicht-Abgeholte"
+        :disable="notPickedUids.length === 0 || sending"
+        :loading="sending"
+        class="q-mx-md q-mb-sm full-width"
+        @click="sendReminderToNotPicked"
+      />
+
+      <div style="height: 8px" />
+
+      <q-dialog v-model="confirm.open" @hide="onConfirmHide">
+        <q-card dark class="confirm-card">
+          <q-card-section class="row items-center q-pb-none">
+            <div class="text-subtitle1 text-weight-bold">
+              {{ confirm.title }}
+            </div>
+            <q-space />
+            <q-btn flat round dense icon="close" @click="confirmCancel" />
+          </q-card-section>
+
+          <q-card-section class="text-body2">
+            {{ confirm.message }}
+          </q-card-section>
+
+          <q-separator dark />
+
+          <q-card-actions align="right" class="q-px-md q-pb-md">
+            <q-btn flat no-caps label="Abbrechen" @click="confirmCancel" />
+            <q-btn
+              unelevated
+              no-caps
+              :color="confirm.okColor"
+              :label="confirm.okLabel"
+              @click="confirmOk"
+            />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
+    </template>
   </q-expansion-item>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { db } from '@/firebase'
-import { collection, doc, getDoc, onSnapshot, query } from 'firebase/firestore'
+import {
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  orderBy,
+  query,
+  runTransaction,
+  serverTimestamp,
+} from 'firebase/firestore'
 import { useQuasar } from 'quasar'
 import { sendPushToUsers } from '@/services/pushSend'
+import { useAuthStore } from '@/stores/auth'
+import { useWurstStore } from '@/stores/wurst'
 
 type Props = {
   wurstId: string
@@ -94,61 +219,58 @@ type Props = {
 const props = defineProps<Props>()
 
 const $q = useQuasar()
+const auth = useAuthStore()
+const wurstStore = useWurstStore()
+const opened = ref(false)
+
+const isMobile = computed(() => $q.screen.lt.md) // ✅ ab md = table
+
+type RowKind = 'reservation' | 'pickup'
 
 type Row = {
+  id: string
+  kind: RowKind
   uid: string
   quantity: number
   email?: string | null
   displayName?: string | null
-  price: number // quantity * pricePerPack
+  price: number
+  picked: boolean
+  pickupId?: string
 }
 
-const rows = ref<Row[]>([])
-let unsub: (() => void) | null = null
-
-// ─────────────────────────────────────────────────────────────
-// LocalStorage: "Abgeholt" Status (pro wurstId pro uid)
-// ─────────────────────────────────────────────────────────────
-const LS_KEY = 'wurst_pickups_v1'
-type PickupsStore = Record<string, Record<string, boolean>> // wurstId -> uid -> true
-
-function readPickups(): PickupsStore {
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY) || '{}') as PickupsStore
-  } catch {
-    return {}
-  }
+type ConfirmState = {
+  open: boolean
+  title: string
+  message: string
+  okLabel: string
+  okColor: string
+  _resolve: null | ((v: boolean) => void)
 }
 
-function writePickups(all: PickupsStore) {
-  localStorage.setItem(LS_KEY, JSON.stringify(all))
+const confirm = ref<ConfirmState>({
+  open: false,
+  title: '',
+  message: '',
+  okLabel: 'OK',
+  okColor: 'primary',
+  _resolve: null,
+})
+
+const tab = ref<'open' | 'picked'>('open')
+const openRows = ref<Row[]>([])
+const pickedRows = ref<Row[]>([])
+
+// Busy state pro row
+const busyMap = ref<Record<string, boolean>>({})
+function isBusy(id: string) {
+  return !!busyMap.value[id]
+}
+function setBusy(id: string, v: boolean) {
+  busyMap.value = { ...busyMap.value, [id]: v }
 }
 
-const pickedMap = ref<Record<string, boolean>>({})
-
-function loadPickedMap() {
-  const all = readPickups()
-  pickedMap.value = all[props.wurstId] || {}
-}
-
-function setPicked(uid: string, picked: boolean) {
-  const all = readPickups()
-  const map = all[props.wurstId] || {}
-  if (picked) map[uid] = true
-  else delete map[uid]
-  all[props.wurstId] = map
-  writePickups(all)
-  pickedMap.value = { ...map }
-}
-
-// Cross-tab sync (falls Admin in anderem Tab markiert)
-function onStorage(e: StorageEvent) {
-  if (e.key === LS_KEY) loadPickedMap()
-}
-
-// ─────────────────────────────────────────────────────────────
-// Cache für Userdaten, damit wir pro UID nur einmal lesen
-// ─────────────────────────────────────────────────────────────
+// Cache für Userdaten
 const userCache = new Map<string, { email: string | null; displayName: string | null }>()
 
 async function loadUser(uid: string) {
@@ -168,34 +290,44 @@ async function loadUser(uid: string) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Totals (gesamt / abgeholt / offen)
-// ─────────────────────────────────────────────────────────────
-const totalQtyAll = computed(() =>
-  rows.value.reduce((a, r) => a + (r.quantity || 0), 0),
-)
+async function enrichUsers(rows: Row[]) {
+  const tasks = rows.map(async (r) => {
+    const info = await loadUser(r.uid)
+    r.email = info.email
+    r.displayName = info.displayName
+  })
+  await Promise.all(tasks)
+}
 
-const totalQtyPicked = computed(() =>
-  rows.value.reduce((a, r) => a + (pickedMap.value[r.uid] ? (r.quantity || 0) : 0), 0),
+// Totals
+const totalQtyAll = computed(
+  () =>
+    openRows.value.reduce((a, r) => a + (r.quantity || 0), 0) +
+    pickedRows.value.reduce((a, r) => a + (r.quantity || 0), 0),
 )
+const totalQtyPicked = computed(() => pickedRows.value.reduce((a, r) => a + (r.quantity || 0), 0))
+const totalQtyOpen = computed(() => openRows.value.reduce((a, r) => a + (r.quantity || 0), 0))
 
-const totalQtyOpen = computed(() => Math.max(0, totalQtyAll.value - totalQtyPicked.value))
+const totalPriceAll = computed(
+  () =>
+    openRows.value.reduce((a, r) => a + (r.price || 0), 0) +
+    pickedRows.value.reduce((a, r) => a + (r.price || 0), 0),
+)
+const totalPricePicked = computed(() => pickedRows.value.reduce((a, r) => a + (r.price || 0), 0))
+const totalPriceOpen = computed(() => openRows.value.reduce((a, r) => a + (r.price || 0), 0))
 
-// (optional) Preis-Summen
-const totalPriceAll = computed(() =>
-  rows.value.reduce((a, r) => a + (r.price || 0), 0),
-)
-const totalPricePicked = computed(() =>
-  rows.value.reduce((a, r) => a + (pickedMap.value[r.uid] ? (r.price || 0) : 0), 0),
-)
-const totalPriceOpen = computed(() => Math.max(0, totalPriceAll.value - totalPricePicked.value))
+const showPrices = false
+function fmt(v: number) {
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(
+    Number(v || 0),
+  )
+}
 
-// Table rows "decorated"
-const tableRows = computed(() =>
-  rows.value
-    .map((r) => ({ ...r, picked: !!pickedMap.value[r.uid] }))
-    .sort((a, b) => b.quantity - a.quantity),
-)
+// Table rows je Tab
+const tableRows = computed(() => {
+  const src = tab.value === 'open' ? openRows.value : pickedRows.value
+  return [...src].sort((a, b) => (b.quantity || 0) - (a.quantity || 0))
+})
 
 const columns = [
   { name: 'picked', label: 'Abgeholt', field: 'picked', align: 'left' },
@@ -203,13 +335,52 @@ const columns = [
   { name: 'quantity', label: 'Menge', field: 'quantity', align: 'right' },
 ]
 
-const notPickedUids = computed(() =>
-  rows.value
-    .filter(r => r.quantity > 0 && !pickedMap.value[r.uid])
-    .map(r => r.uid)
-)
-const sending = ref(false)
+// Reminder an Nicht-Abgeholte (nur aktive Reservierungen)
+const notPickedUids = computed(() => openRows.value.filter((r) => r.quantity > 0).map((r) => r.uid))
 
+function confirmDialogCard(opts: {
+  title: string
+  message: string
+  okLabel?: string
+  okColor?: string
+}) {
+  // falls ein alter Dialog offen ist: sauber schließen
+  if (confirm.value.open && confirm.value._resolve) {
+    confirm.value._resolve(false)
+  }
+
+  confirm.value.title = opts.title
+  confirm.value.message = opts.message
+  confirm.value.okLabel = opts.okLabel ?? 'OK'
+  confirm.value.okColor = opts.okColor ?? 'primary'
+  confirm.value.open = true
+
+  return new Promise<boolean>((resolve) => {
+    confirm.value._resolve = resolve
+  })
+}
+
+function confirmOk() {
+  confirm.value.open = false
+  confirm.value._resolve?.(true)
+  confirm.value._resolve = null
+}
+
+function confirmCancel() {
+  confirm.value.open = false
+  confirm.value._resolve?.(false)
+  confirm.value._resolve = null
+}
+
+// Falls Dialog irgendwie geschlossen wird (ESC/backdrop o.ä.)
+function onConfirmHide() {
+  if (confirm.value._resolve) {
+    confirm.value._resolve(false)
+    confirm.value._resolve = null
+  }
+}
+
+const sending = ref(false)
 async function sendReminderToNotPicked() {
   if (sending.value) return
 
@@ -224,7 +395,7 @@ async function sendReminderToNotPicked() {
     await sendPushToUsers({
       uids,
       body: 'Deine Bestellung ist bereit - bitte abholen.',
-      url: '/', 
+      url: '/',
     })
     $q.notify({ type: 'positive', message: `Erinnerung gesendet (${uids.length} Nutzer)` })
   } catch (e: any) {
@@ -235,40 +406,117 @@ async function sendReminderToNotPicked() {
   }
 }
 
+// Reserviert -> Abgeholt
+async function moveReservationToPickup(wurstId: string, uid: string) {
+  if (!auth.user) throw new Error('Nicht eingeloggt')
 
-// ─────────────────────────────────────────────────────────────
-// Snapshot
-// ─────────────────────────────────────────────────────────────
-onMounted(() => {
-  loadPickedMap()
-  window.addEventListener('storage', onStorage)
+  const rRef = doc(db, 'wuerste', wurstId, 'reservations', uid)
+  const pickupsCol = collection(db, 'wuerste', wurstId, 'pickups')
+  const pickupRef = doc(pickupsCol)
 
-  const qy = query(collection(db, 'wuerste', props.wurstId, 'reservations'))
-  unsub = onSnapshot(
-    qy,
+  await runTransaction(db, async (tx) => {
+    const rSnap = await tx.get(rRef)
+    if (!rSnap.exists()) throw new Error('Keine aktive Reservierung gefunden.')
+
+    const data = rSnap.data() as any
+    const qty = Math.max(0, Number(data.quantity || 0))
+    if (qty <= 0) throw new Error('Reservierung ist 0 – nichts abzuholen.')
+
+    tx.set(pickupRef, {
+      uid,
+      quantity: qty,
+      pickedUpAt: serverTimestamp(),
+      pickedUpBy: auth.user!.uid,
+      state: 'pickedUp',
+    })
+
+    tx.delete(rRef)
+  })
+}
+
+async function onTogglePicked(row: Row, next: boolean) {
+  if (!!row.picked === !!next) return
+
+  if (row.kind === 'reservation' && next === true) {
+    const ok = await confirmDialogCard({
+      title: 'Als abgeholt markieren?',
+      message: `${row.displayName || row.email || row.uid} hat ${row.quantity} Packung(en) abgeholt.`,
+      okLabel: 'Abgeholt',
+      okColor: 'positive',
+    })
+    if (!ok) return
+
+    setBusy(row.id, true)
+    try {
+      await moveReservationToPickup(props.wurstId, row.uid)
+      $q.notify({ type: 'positive', message: 'Als abgeholt gespeichert.' })
+    } catch (e: any) {
+      console.error(e)
+      $q.notify({ type: 'negative', message: e?.message || 'Aktion fehlgeschlagen' })
+    } finally {
+      setBusy(row.id, false)
+    }
+    return
+  }
+
+  if (row.kind === 'pickup' && next === false) {
+    const ok = await confirmDialogCard({
+      title: 'Zurück zu reserviert?',
+      message: `Abholung zurücksetzen: ${row.displayName || row.email || row.uid} (${row.quantity})`,
+      okLabel: 'Zurücksetzen',
+      okColor: 'warning',
+    })
+    if (!ok) return
+
+    setBusy(row.id, true)
+    try {
+      await wurstStore.undoPickupToReservation(props.wurstId, row.pickupId!)
+      $q.notify({ type: 'positive', message: 'Wieder als Reservierung gesetzt.' })
+    } catch (e: any) {
+      console.error(e)
+      $q.notify({ type: 'negative', message: e?.message || 'Undo fehlgeschlagen' })
+    } finally {
+      setBusy(row.id, false)
+    }
+    return
+  }
+}
+
+// Snapshots
+let unsubReservations: (() => void) | null = null
+let unsubPickups: (() => void) | null = null
+
+function resubscribe() {
+  if (unsubReservations) unsubReservations()
+  if (unsubPickups) unsubPickups()
+
+  openRows.value = []
+  pickedRows.value = []
+
+  // active reservations
+  const qRes = query(collection(db, 'wuerste', props.wurstId, 'reservations'))
+  unsubReservations = onSnapshot(
+    qRes,
     async (snap) => {
       const base: Row[] = snap.docs
         .map((d) => {
           const data = d.data() as any
           const uid = data?.uid || d.id
           const q = Math.max(0, Number(data?.quantity || 0))
-          return { uid, quantity: q, price: q * (props.pricePerPack || 0) }
+          return {
+            id: `res:${uid}`,
+            kind: 'reservation',
+            uid,
+            quantity: q,
+            price: q * (props.pricePerPack || 0),
+            picked: false,
+          } as Row
         })
         .filter((r) => r.quantity > 0)
 
-      // sofort anzeigen (snappy)
-      rows.value = base
-
-      // Userdaten nachladen (best-effort)
-      const tasks = base.map(async (r) => {
-        const info = await loadUser(r.uid)
-        r.email = info.email
-        r.displayName = info.displayName
-      })
-      await Promise.all(tasks)
-
-      // reactivity trigger
-      rows.value = [...base]
+      openRows.value = base
+      await enrichUsers(base)
+      openRows.value = [...base]
     },
     (err) => {
       $q.notify({
@@ -277,24 +525,109 @@ onMounted(() => {
       })
     },
   )
-})
+
+  // pickups (clientseitig nur pickedUp anzeigen)
+  const qPick = query(
+    collection(db, 'wuerste', props.wurstId, 'pickups'),
+    orderBy('pickedUpAt', 'desc'),
+  )
+
+  unsubPickups = onSnapshot(
+    qPick,
+    async (snap) => {
+      const base: Row[] = snap.docs
+        .map((d) => {
+          const data = d.data() as any
+          const uid = String(data?.uid || '')
+          const q = Math.max(0, Number(data?.quantity || 0))
+          const state = String(data?.state || 'pickedUp')
+
+          return {
+            id: `pick:${d.id}`,
+            kind: 'pickup',
+            pickupId: d.id,
+            uid,
+            quantity: q,
+            price: q * (props.pricePerPack || 0),
+            picked: state === 'pickedUp',
+          } as Row
+        })
+        .filter((r) => r.quantity > 0 && !!r.uid && r.picked)
+
+      pickedRows.value = base
+      await enrichUsers(base)
+      pickedRows.value = [...base]
+    },
+    (err) => {
+      $q.notify({
+        type: 'negative',
+        message: err.message || 'Abholungen konnten nicht geladen werden.',
+      })
+    },
+  )
+}
 
 onUnmounted(() => {
-  if (unsub) unsub()
-  window.removeEventListener('storage', onStorage)
+  if (unsubReservations) unsubReservations()
+  if (unsubPickups) unsubPickups()
 })
 
-// wenn wurstId wechselt (selten), Map neu laden
-watch(
-  () => props.wurstId,
-  () => loadPickedMap(),
-)
+watch(opened, (v) => {
+  if (v) resubscribe()
+  else {
+    unsubReservations?.(); unsubReservations = null
+    unsubPickups?.(); unsubPickups = null
+  }
+})
 </script>
 
-
 <style scoped>
+.ar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 6px;
+  gap: 10px;
+}
+
+.ar-head.is-mobile {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.ar-tabs {
+  width: auto;
+}
+
+.ar-head.is-mobile .ar-tabs {
+  width: 100%;
+}
+
+.ar-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ar-head.is-mobile .ar-chips {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.ar-table-wrap {
+  overflow-x: auto; /* fallback falls table mal breiter ist */
+}
+
+.ar-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  justify-content: flex-end;
+  padding: 10px 4px 0;
+}
+
 .picked-row {
   opacity: 0.45;
-  text-decoration: line-through;
 }
 </style>

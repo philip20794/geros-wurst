@@ -1,28 +1,46 @@
 /// <reference lib="webworker" />
 
-import { precacheAndRoute } from 'workbox-precaching'
-import { initializeApp } from 'firebase/app'
-import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw'
+import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
+import { clientsClaim } from 'workbox-core'
 import { registerRoute } from 'workbox-routing'
-import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies'
+import { CacheFirst } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
 import { CacheableResponsePlugin } from 'workbox-cacheable-response'
 
-declare const self: ServiceWorkerGlobalScope
+import { initializeApp } from 'firebase/app'
+import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw'
+
+declare const self: ServiceWorkerGlobalScope & {
+  __WB_MANIFEST: Array<unknown>
+}
+
+// ✅ Updates schneller übernehmen
+self.skipWaiting()
+clientsClaim()
+
+// ✅ Alte, nicht mehr benötigte precaches aufräumen
+cleanupOutdatedCaches()
 
 // Workbox precache (injectManifest)
 precacheAndRoute(self.__WB_MANIFEST)
 
-// 1) Bilder generell cachen (png/jpg/webp/svg, auch von Firebase Storage/Google)
+// ✅ Optional: Client kann aktiv "skip waiting" anfordern (für Update-Button)
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
+})
+
+// 1) Bilder generell cachen
 registerRoute(
   ({ request }) => request.destination === 'image',
   new CacheFirst({
-    cacheName: 'images-v1',
+    cacheName: 'images-v2', // <-- bumpen, wenn du Cache resetten willst
     plugins: [
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
         maxEntries: 200,
-        maxAgeSeconds: 60 * 60 * 24 * 30, // 30 Tage
+        maxAgeSeconds: 60 * 60 * 24 * 30,
       }),
     ],
   })
@@ -40,18 +58,9 @@ const firebaseApp = initializeApp({
 
 const messaging = getMessaging(firebaseApp)
 
-// Background handling (wichtig für data-only oder custom click behavior)
 onBackgroundMessage(messaging, (payload) => {
-  const title =
-    payload.notification?.title ??
-    payload.data?.title ??
-    'Geros Wild'
-
-  const body =
-    payload.notification?.body ??
-    payload.data?.body ??
-    'Neues Wild!'
-
+  const title = payload.notification?.title ?? payload.data?.title ?? 'Geros Wild'
+  const body = payload.notification?.body ?? payload.data?.body ?? 'Neues Wild!'
   const url = payload.data?.url ?? '/'
 
   self.registration.showNotification(title, {
@@ -62,7 +71,6 @@ onBackgroundMessage(messaging, (payload) => {
   })
 })
 
-
 // Click: Fokus/öffnen + navigieren
 self.addEventListener('notificationclick', (event: any) => {
   const url = event.notification?.data?.url || '/'
@@ -70,16 +78,14 @@ self.addEventListener('notificationclick', (event: any) => {
 
   const targetUrl = new URL(url, self.location.origin).href
 
-    event.waitUntil(
+  event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsArr) => {
       for (const client of clientsArr) {
         const wc = client as WindowClient
         if ('focus' in wc) {
-          // Wenn bereits offen: dahin navigieren + fokussieren
           return wc.navigate(targetUrl).then(() => wc.focus())
         }
       }
-      // Wenn nicht offen: öffnet PWA (wenn installiert & URL im scope ist), sonst Browser
       return self.clients.openWindow(targetUrl)
     })
   )

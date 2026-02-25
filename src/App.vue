@@ -5,6 +5,7 @@
       <router-view />
     </q-page-container>
     <OfflineBlocker />
+    <GlobalBootOverlay />
   </q-layout>
 </template>
 
@@ -17,11 +18,13 @@ import { useAuthStore } from '@/stores/auth'
 import { initPwaInstallListener } from '@/services/pwaInstall'
 import { runInstallPrompt } from '@/services/appPrompts'
 import { ensurePushTokenRegistered } from "./services/push"
+import GlobalBootOverlay from "./components/GlobalBootOverlay.vue"
 
 const $q = useQuasar()
 const auth = useAuthStore()
 
 onMounted(() => {
+  document.body.classList.add('no-fx')
   initPwaInstallListener(() => runInstallPrompt($q))
   runInstallPrompt($q) // iOS-Fall kann sofort gehen
   ensurePushTokenRegistered().catch(() => {})
@@ -134,6 +137,10 @@ if ('serviceWorker' in navigator) {
 
 input, textarea, select, button {
   font-size: 16px !important;
+}
+
+.q-page-container {
+  background: transparent;
 }
 </style>
 

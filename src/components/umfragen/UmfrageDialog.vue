@@ -5,6 +5,7 @@
       <q-card-section class="row items-center justify-between bg-primary text-white">
         <div>
           <div class="text-h6">{{ headerTitle }}</div>
+          <div class="text-caption opacity-80">{{ headerSubtitle }}</div>
         </div>
 
         <q-btn flat round dense icon="close" class="text-white" :disable="busy" @click="close" />
@@ -13,10 +14,11 @@
       <q-separator />
 
       <q-form ref="formRef" @submit.prevent="submit">
-        <q-card-section class="q-gutter-sm">
+        <q-card-section class="q-gutter-sm card-wood">
           <!-- Details -->
           <div>
             <div class="text-subtitle2 q-mb-xs">Details</div>
+
             <q-input
               v-model.trim="form.name"
               outlined
@@ -28,8 +30,23 @@
             >
               <template #prepend><q-icon name="label" /></template>
             </q-input>
-          </div>
 
+            <!-- ✅ Kategorie (neu) -->
+            <q-input
+              v-model.trim="form.category"
+              outlined
+              dense
+              label="Kategorie"
+              :rules="[required]"
+              :disable="busy"
+              bottom-slots
+            >
+              <template #prepend><q-icon name="category" /></template>
+              <template #hint>
+                <span class="text-white">z.B. Würstchen, Steaks, Rücken, ...</span>
+              </template>
+            </q-input>
+          </div>
 
           <!-- Mengen & Preis -->
           <div>
@@ -39,8 +56,11 @@
               <div class="col-12 col-sm-6">
                 <q-input
                   v-model.number="form.sausagesPerPack"
-                  outlined dense type="number" min="1"
-                  label="Würste pro Packung"
+                  outlined
+                  dense
+                  type="number"
+                  min="1"
+                  :label="sausagesPerPackLabel"
                   :rules="[min1]"
                   :disable="busy"
                 >
@@ -99,7 +119,6 @@
             </div>
           </div>
 
-
           <!-- Progress -->
           <q-linear-progress
             v-if="progress > 0 && progress < 100"
@@ -109,12 +128,12 @@
           />
         </q-card-section>
 
-        <q-separator />
 
-        <q-card-actions align="right" class="q-pa-md">
+
+        <q-card-actions align="right" class="q-pa-md bg-primary">
           <q-btn flat no-caps label="Abbrechen" :disable="busy" @click="close" />
           <q-btn
-            color="primary"
+            color="dark"
             no-caps
             unelevated
             :label="isConvert ? 'Umwandeln' : (isEdit ? 'Speichern' : 'Anlegen')"
@@ -134,6 +153,7 @@ import type { QForm } from 'quasar'
 export type UmfrageEntity = {
   id: string
   name: string
+  category?: string // ✅ neu
   sausagesPerPack: number
   totalPacks?: number | null
   pricePerPack?: number | null
@@ -143,6 +163,7 @@ export type UmfrageEntity = {
 
 export type UmfrageSubmitPayload = {
   name: string
+  category: string // ✅ neu
   sausagesPerPack: number
   totalPacks: number | null
   pricePerPack: number | null
@@ -151,6 +172,7 @@ export type UmfrageSubmitPayload = {
 
 export type ConvertPayload = {
   name?: string
+  category: string // ✅ neu
   sausagesPerPack: number
   totalPacks: number
   pricePerPack: number
@@ -161,20 +183,22 @@ type Mode = 'create' | 'edit' | 'convert'
 
 type Props = {
   modelValue: boolean
-  entity?: UmfrageEntity | null   // wenn gesetzt => edit
-  mode?: Mode                 // ✅ neu
-  busy?: boolean                 // creating/saving von außen
-  progress?: number              // upload progress 0-100
-  subtitle?: string              // nur für create
+  entity?: UmfrageEntity | null
+  mode?: Mode
+  busy?: boolean
+  progress?: number
+  subtitle?: string
   resetOnClose?: boolean
 }
+
+const DEFAULT_CATEGORY = 'Würstchen' // ✅ neu
 
 const props = withDefaults(defineProps<Props>(), {
   entity: null,
   mode: 'create',
   busy: false,
   progress: 0,
-  subtitle: 'Lege einen neuen Eintrag an – Bild ist optional.',
+  subtitle: '',
   resetOnClose: true,
 })
 
@@ -196,6 +220,7 @@ const formRef = ref<QForm | null>(null)
 
 const form = reactive<UmfrageSubmitPayload>({
   name: '',
+  category: DEFAULT_CATEGORY, // ✅ neu
   sausagesPerPack: 1,
   totalPacks: null,
   pricePerPack: null,
@@ -218,6 +243,13 @@ const headerSubtitle = computed(() => {
   return props.subtitle
 })
 
+const categorySafe = computed(() => {
+  const c = String(form.category || '').trim()
+  return c.length ? c : DEFAULT_CATEGORY
+})
+
+const sausagesPerPackLabel = computed(() => `${categorySafe.value} pro Packung`)
+
 function normalizeOptionalNumber(v: any) {
   if (v === '' || v === undefined) return null
   if (v === null) return null
@@ -233,6 +265,7 @@ function normalizeRequiredNumber(v: any) {
 function fillFromEntity() {
   const e = props.entity
   form.name = e?.name ?? ''
+  form.category = String(e?.category ?? DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY
   form.sausagesPerPack = Number(e?.sausagesPerPack ?? 1)
   form.totalPacks = e?.totalPacks ?? null
   form.pricePerPack = e?.pricePerPack ?? null
@@ -255,12 +288,11 @@ function onFileChange(file: File | null) {
 }
 
 // Validation rules
-const required = (v: any) => !!v || 'Pflichtfeld'
+const required = (v: any) => !!String(v ?? '').trim() || 'Pflichtfeld'
 const min1 = (v: any) => (Number(v) >= 1 ? true : 'Mindestens 1')
 
 // Convert rules (Pflicht)
 const reqNumber0 = (v: any) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? true : 'Pflicht (>= 0)')
-
 
 function close() {
   emit('cancel')
@@ -274,7 +306,7 @@ async function submit() {
   const ok = await formRef.value?.validate?.()
   if (!ok) return
 
-  // ✅ convert: emit convert statt submit
+  // convert: emit convert statt submit
   if (isConvert.value) {
     const id = props.entity?.id
     if (!id) return
@@ -289,10 +321,11 @@ async function submit() {
       id,
       payload: {
         name: String(form.name || '').trim() || undefined,
+        category: String(form.category || '').trim() || DEFAULT_CATEGORY,
         sausagesPerPack: Math.max(1, Math.floor(Number(form.sausagesPerPack || 1))),
         totalPacks: Math.floor(total),
         pricePerPack: Number(Number(price).toFixed(2)),
-        file: form.file ?? null, 
+        file: form.file ?? null,
       },
     })
     return
@@ -301,6 +334,7 @@ async function submit() {
   // create/edit
   const payload: UmfrageSubmitPayload = {
     name: String(form.name || '').trim(),
+    category: String(form.category || '').trim() || DEFAULT_CATEGORY,
     sausagesPerPack: Math.max(1, Math.floor(Number(form.sausagesPerPack || 1))),
     totalPacks: normalizeOptionalNumber(form.totalPacks),
     pricePerPack: normalizeOptionalNumber(form.pricePerPack),

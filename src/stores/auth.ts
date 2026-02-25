@@ -28,11 +28,21 @@ import { getPushTokenIfGranted } from '@/services/push'
 
 // Echtzeitbeobachtung: wie viele Pending User existieren
 export function watchPendingUsers(callback: (count: number) => void) {
+  // ✅ wenn noch nicht eingeloggt, KEIN Listener starten
+  if (!auth.currentUser) {
+    callback(0)
+    return () => {}
+  }
+
   const q = query(collection(db, 'users'), where('status', '==', 'pending'))
-  const unsub = onSnapshot(q, (snap) => {
-    callback(snap.size)
-  })
-  return unsub
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.size),
+    (err) => {
+      console.error('watchPendingUsers error:', err)
+      callback(0)
+    },
+  )
 }
 
 export type UserMeta = {
@@ -55,6 +65,8 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const meta = ref<UserMeta | null>(null)
   const loading = ref(true)
+  const ready = ref(false)
+  const metaLoading = ref(false)
 
   // ✅ Einheitliche Anzeige (UI + Push)
   const displayName = computed(() => {
@@ -78,6 +90,25 @@ export const useAuthStore = defineStore('auth', () => {
 
   const pushToken = ref<string | null>(null)
 
+  async function safeGetUserDoc(u: User) {
+  try {
+    // ✅ stellt sicher, dass Firestore den Request mit Auth-Token sendet
+    await u.getIdToken()
+    return await getDoc(doc(db, 'users', u.uid))
+  } catch (e: any) {
+    // ✅ manchmal ist der erste Token-Stand nicht ready -> einmal refresh + retry
+    if (e?.code === 'permission-denied') {
+      try {
+        await u.getIdToken(true)
+        return await getDoc(doc(db, 'users', u.uid))
+      } catch {}
+    }
+    console.error('safeGetUserDoc error:', e)
+    return null
+  }
+}
+
+
   // optional: hält Firestore displayName konsistent, ohne ständig zu schreiben
   async function syncDisplayNameToMetaIfMissing(u: User) {
     try {
@@ -94,29 +125,31 @@ export const useAuthStore = defineStore('auth', () => {
 
   if (!authListenerStarted) {
     onAuthStateChanged(auth, async (u) => {
+      loading.value = true
+      metaLoading.value = false
+
       user.value = u
+      meta.value = null
 
       if (u) {
-        const snap = await getDoc(doc(db, 'users', u.uid)).catch(() => null)
+        metaLoading.value = true
+        const snap = await safeGetUserDoc(u)
         meta.value = snap?.exists() ? (snap.data() as UserMeta) : null
+        metaLoading.value = false
 
-        // lastLoginAt aktualisieren (nicht kritisch, Errors schlucken)
+        // lastLoginAt / syncDisplayName / push token wie bei dir ...
         if (snap?.exists()) {
-          await updateDoc(doc(db, 'users', u.uid), { lastLoginAt: serverTimestamp() }).catch(
-            () => {},
-          )
+          await updateDoc(doc(db, 'users', u.uid), { lastLoginAt: serverTimestamp() }).catch(() => {})
         }
-
-        // ✅ optional: falls Firestore displayName fehlt, aber Auth hat einen
         await syncDisplayNameToMetaIfMissing(u)
-
-        // nur sync wenn permission schon granted ist (kein popup)
         await syncPushTokenIfGranted()
       } else {
         meta.value = null
+        metaLoading.value = false
       }
 
       loading.value = false
+      ready.value = true
     })
 
     authListenerStarted = true
@@ -145,7 +178,7 @@ export const useAuthStore = defineStore('auth', () => {
     const cred = await signInWithEmailAndPassword(auth, email, password)
     user.value = cred.user
 
-    const snap = await getDoc(doc(db, 'users', cred.user.uid)).catch(() => null)
+    const snap = await safeGetUserDoc(cred.user)
     meta.value = snap?.exists() ? (snap.data() as UserMeta) : null
 
     // ✅ optional: displayName auffüllen wenn Firestore leer
@@ -288,5 +321,8 @@ export const useAuthStore = defineStore('auth', () => {
     pushToken,
     enablePush,
     disablePushForThisDevice,
+    
+    ready,
+    metaLoading,
   }
 })

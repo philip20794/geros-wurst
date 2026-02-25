@@ -3,7 +3,6 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { db } from '@/firebase'
 import {
-  addDoc,
   collection,
   serverTimestamp,
   onSnapshot,
@@ -25,12 +24,17 @@ export type Wunsch = {
   createdBy?: string | null
 }
 
-
-
+export type WillHabenEntry = {
+  uid: string
+  name: string
+  quantity: number
+}
 
 export const useWuenscheStore = defineStore('wuensche', () => {
   const list = ref<Wunsch[]>([])
   const unsubRef = ref<null | (() => void)>(null)
+
+  // ✅ cache: uid -> name
   const userNameCache = ref<Record<string, string>>({})
 
   function watchAll() {
@@ -73,43 +77,43 @@ export const useWuenscheStore = defineStore('wuensche', () => {
     }
   }
 
-async function createWunsch(name: string) {
-  const auth = useAuthStore()
-  if (!auth.user) throw new Error('Nicht eingeloggt')
+  async function createWunsch(name: string) {
+    const auth = useAuthStore()
+    if (!auth.user) throw new Error('Nicht eingeloggt')
 
-  const clean = name.trim()
-  if (!clean) throw new Error('Name fehlt')
+    const clean = name.trim()
+    if (!clean) throw new Error('Name fehlt')
 
-  const uid = auth.user.uid
+    const uid = auth.user.uid
 
-  // neue Doc-ID erzeugen (ohne addDoc)
-  const wishRef = doc(collection(db, 'wuensche'))
+    // neue Doc-ID erzeugen (ohne addDoc)
+    const wishRef = doc(collection(db, 'wuensche'))
 
-  const batch = writeBatch(db)
+    const batch = writeBatch(db)
 
-  // 1) Wunsch-Dokument
-  batch.set(wishRef, {
-    name: clean,
-    createdAt: serverTimestamp(),
-    createdBy: uid,
-    status: 'open',
-  })
+    // 1) Wunsch-Dokument
+    batch.set(wishRef, {
+      name: clean,
+      createdAt: serverTimestamp(),
+      createdBy: uid,
+      status: 'open',
+    })
 
-  // 2) Subcollection: willhaben/uid = 1
-  const willRef = doc(db, 'wuensche', wishRef.id, 'willhaben', uid)
-  batch.set(
-    willRef,
-    {
-      uid,
-      quantity: 1,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
-  )
+    // 2) Subcollection: willhaben/uid = 1
+    const willRef = doc(db, 'wuensche', wishRef.id, 'willhaben', uid)
+    batch.set(
+      willRef,
+      {
+        uid,
+        quantity: 1,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    )
 
-  await batch.commit()
-  return wishRef.id
-}
+    await batch.commit()
+    return wishRef.id
+  }
 
   async function updateWunsch(id: string, data: Partial<Pick<Wunsch, 'name'>>) {
     const patch: any = {}
@@ -121,7 +125,7 @@ async function createWunsch(name: string) {
     await deleteDoc(doc(db, 'wuensche', id))
   }
 
-  // --- Will haben (bleibt) ---
+  // --- Will haben ---
   function watchWillHabenSum(wishId: string, cb: (sum: number) => void) {
     const qy = collection(db, 'wuensche', wishId, 'willhaben')
     return onSnapshot(
@@ -161,7 +165,6 @@ async function createWunsch(name: string) {
 
     await setDoc(rRef, { uid, quantity: nextQty, updatedAt: serverTimestamp() }, { merge: true })
 
-    // optional server-check
     const snap = await getDocFromServer(rRef)
     if (!snap.exists()) throw new Error('Will-haben wurde nicht am Server gespeichert.')
   }
@@ -179,6 +182,44 @@ async function createWunsch(name: string) {
     }
   }
 
+  /**
+   * ✅ Admin: Live-Liste aller Willhaben-Einträge (uid -> displayName, quantity)
+   * Nutzt getUserDisplayName() + Cache.
+   */
+  function watchWillHabenList(wishId: string, cb: (rows: WillHabenEntry[]) => void) {
+    const qy = collection(db, 'wuensche', wishId, 'willhaben')
+
+    return onSnapshot(
+      qy,
+      async (snap) => {
+        const raw = snap.docs
+          .map((d) => d.data() as any)
+          .map((x) => ({
+            uid: String(x.uid || ''),
+            quantity: Math.max(0, Math.floor(Number(x.quantity || 0))),
+          }))
+          .filter((x) => x.uid && x.quantity > 0)
+
+        // höchste Menge zuerst
+        raw.sort((a, b) => b.quantity - a.quantity)
+
+        const rows = await Promise.all(
+          raw.map(async (r) => ({
+            uid: r.uid,
+            quantity: r.quantity,
+            name: await getUserDisplayName(r.uid),
+          })),
+        )
+
+        cb(rows)
+      },
+      (err) => {
+        console.error('watchWillHabenList', err)
+        cb([])
+      },
+    )
+  }
+
   const items = computed(() => list.value)
 
   return {
@@ -190,6 +231,7 @@ async function createWunsch(name: string) {
     updateWunsch,
     deleteWunsch,
     watchWillHabenSum,
+    watchWillHabenList, // ✅ neu
     watchMyWillHaben,
     setWillHaben,
     getMyWillHaben,

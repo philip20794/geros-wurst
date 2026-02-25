@@ -51,12 +51,10 @@ import { sendPushToAllUsers } from '@/services/pushSend'
 import WunschDialog, { type CreatePayload } from '../wuensche/WunschDialog.vue'
 import NoWuenschePlaceholder from '../NoWuenschePlaceholder.vue'
 
+defineOptions({ name: 'HomeTabWuensche' })
 const $q = useQuasar()
 const auth = useAuthStore()
 const store = useWuenscheStore()
-
-onMounted(() => store.watchAll())
-onUnmounted(() => store.stop())
 
 // Create
 const openCreate = ref(false)

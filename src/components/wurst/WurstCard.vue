@@ -2,14 +2,12 @@
   <q-card flat class="card-wood product-card" dark>
     <!-- Hero Image -->
     <div class="hero">
-      <q-img :src="wurst.imageUrl" :ratio="16/9" loading="lazy" class="hero-img">
+      <q-img :src="wurst.imageUrl" :ratio="16/9" loading="eager" class="hero-img">
         <!-- Header overlay -->
         <div class="hero-overlay">
           <div class="row items-center justify-between">
             <div class="row items-center no-wrap" />
             <div class="row items-center q-gutter-xs">
-              <!-- Fullscreen -->
-              <q-btn flat round dense icon="fullscreen" class="text-white" @click.stop="showFull = true" />
 
               <!-- Admin menu -->
               <q-btn v-if="isAdmin" flat round dense icon="more_horiz" class="text-white">
@@ -23,6 +21,27 @@
                       <q-item-section avatar><q-icon name="edit" /></q-item-section>
                       <q-item-section>Bearbeiten</q-item-section>
                     </q-item>
+                    <q-item>
+                      <q-item-section avatar>
+                        <q-icon :name="(wurst.active !== false) ? 'toggle_on' : 'toggle_off'" />
+                      </q-item-section>
+
+                      <q-item-section>
+                        <div class="text-body2">Aktiv</div>
+                        <div class="text-caption opacity-70">
+                          {{ (wurst.active !== false) ? 'sichtbar für Nutzer' : 'versteckt für Nutzer' }}
+                        </div>
+                      </q-item-section>
+
+                      <q-item-section side>
+                        <q-toggle
+                          dense
+                          :model-value="wurst.active !== false"
+                          @update:model-value="toggleActive"
+                        />
+                      </q-item-section>
+                    </q-item>
+
                     <q-item clickable v-close-popup @click="emit('delete', wurst)">
                       <q-item-section avatar><q-icon name="delete" /></q-item-section>
                       <q-item-section>Löschen</q-item-section>
@@ -41,12 +60,59 @@
         </div>
 
 
-        <!-- Bottom badge: Availability -->
-        <div class="availability-badge">
-          <span class="label">Verfügbar</span>
-          <span class="value">{{ remaining }}</span>
-          <span class="muted">/ {{ wurst.totalPacks }}</span>
+        <!-- Bottom badge: Availability (neu) -->
+        <div
+          class="availability-pill"
+          :class="availClass"
+          role="button"
+          @click.stop="isAdmin && fixReservations()"
+        >
+          <q-btn
+            flat
+            round
+            dense
+            class="pill-refresh text-white"
+            :disable="updating"
+            @click.stop="fixReservations"
+          >
+            <q-icon v-if="!updating" name="refresh" />
+            <q-spinner v-else size="14px" />
+            <q-tooltip>{{ updating ? 'Aktualisiere…' : 'Bestände neu berechnen' }}</q-tooltip>
+          </q-btn>
+
+          <div class="pill-main">
+            <div class="pill-top">
+              <span class="label">Verfügbar:</span>
+              <span class="value">{{ remaining }}</span>
+              <span class="muted">/ {{ wurst.totalPacks }}</span>
+            </div>
+
+            <q-linear-progress
+              rounded
+              size="4px"
+              :value="availRatio"
+              :indeterminate="updating"
+              :color="availColor"
+              track-color="rgba(255,255,255,0.18)"
+              class="pill-bar"
+            />
+          </div>
         </div>
+
+
+        <!-- Fullscreen Button unten rechts -->
+        <div class="fs-btn">
+          <q-btn
+            flat
+            round
+            dense
+            size="xs"
+            icon="fullscreen"
+            class="text-white fs-btn-q"
+            @click.stop="emit('open-full', wurst.imageUrl, wurst.name)"
+          />
+        </div>
+
       </q-img>
     </div>
 
@@ -56,13 +122,13 @@
 
       <div class="meta row items-center justify-between q-mt-xs">
         <div class="text-body2 ">
-          {{ wurst.sausagesPerPack }} Würstchen pro Packung
+          {{ wurst.sausagesPerPack }} {{ categorySafe }} pro Packung
         </div>
 
 
         <div class="fact">
           <div class="k">Preis</div>
-          <div class="v">{{ Number(wurst.pricePerPack).toFixed(2) }} €/Kg</div>
+          <div class="v" v-if="price">{{ price }}</div>
         </div>
       </div>
 
@@ -135,29 +201,11 @@
       </div>
     </q-card-section>
 
-    <!-- Vollbild-Dialog -->
-    <q-dialog v-model="showFull" maximized>
-      <q-card class="bg-black">
-        <q-bar class="bg-black text-white">
-          <div class="text-subtitle2 ellipsis">{{ wurst.name }}</div>
-          <q-space />
-          <q-btn no-caps dense flat round icon="close" v-close-popup />
-        </q-bar>
-        <q-card-section class="q-pa-none">
-          <q-img
-            :src="wurst.imageUrl"
-            fit="contain"
-            style="height: calc(100vh - 42px);"
-            img-class="bg-black"
-          />
-        </q-card-section>
-      </q-card>
-    </q-dialog>
   </q-card>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from '@/stores/auth'
 import { useWurstStore, type Wurst } from '@/stores/wurst'
@@ -170,6 +218,7 @@ const emit = defineEmits<{
   (e: 'push', w: Wurst): void
   (e: 'edit', w: Wurst): void
   (e: 'delete', w: Wurst): void
+  (e: 'open-full', src: string, title: string): void
 }>()
 
 const $q = useQuasar()
@@ -183,43 +232,84 @@ const headerTitle = computed(() => 'Geros Wild')
 const avatarInitial = computed(() => 'G')
 
 // State
-const reservedSum = ref(0)
 const myQty = ref<number>(0)
-const currentQty = ref(0)
+const wurstId = computed(() => props.wurst.id)
+
+const currentQty = computed(() => {
+  const map = store.myResMap as any
+  return Number(map?.value?.[wurstId.value] ?? map?.[wurstId.value] ?? 0)
+})
 
 const editorOpen = ref(false)
 const saving = ref(false)
 const showFull = ref(false)
-
-let unsubSum: null | (() => void) = null
-let unsubMine: null | (() => void) = null
+const updating = ref(false)
 
 const remaining = computed(() => {
-  return Math.max(0, (props.wurst.totalPacks || 0) - (reservedSum.value || 0))
+  const total = Number(props.wurst.totalPacks || 0)
+  const reserved = Number((props.wurst as any).reservedPacks || 0)
+  const picked = Number((props.wurst as any).pickedUpPacks || 0)
+  return Math.max(0, total - reserved - picked)
 })
 
-onMounted(async () => {
-  unsubSum = store.watchReservedSum(props.wurst.id, (sum) => (reservedSum.value = sum))
-
-  unsubMine = store.watchMyReservation(props.wurst.id, (qty) => {
-    currentQty.value = qty
-    if (!editorOpen.value) myQty.value = qty
-  })
-
-  // fallback
-  try {
-    const initial = await store.getMyReservation(props.wurst.id)
-    currentQty.value = initial
-    if (!editorOpen.value) myQty.value = initial
-  } catch (e) {
-    console.error('getMyReservation failed', e)
+const price = computed(() => {
+  if (props.wurst != null && props.wurst.pricePerPack != null) {
+    const result = Number(props.wurst.pricePerPack).toFixed(2)
+    if (props.wurst.pricePerPack === 0) {
+      return 'VB'
+    }
+    return `${result} €/${props.wurst.unit ?? 'Kg'}`
   }
+  return null
 })
 
-onUnmounted(() => {
-  if (unsubSum) unsubSum()
-  if (unsubMine) unsubMine()
+const categorySafe = computed(() => {
+  const c = (props.wurst as any)?.category
+  const s = String(c ?? '').trim()
+  return s.length ? s : 'Würstchen'
 })
+
+const availRatio = computed(() => {
+  const total = Number(props.wurst.totalPacks || 0)
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(1, remaining.value / total))
+})
+
+const availColor = computed(() => {
+  if (remaining.value <= 0) return 'negative'
+  if (availRatio.value < 0.25) return 'warning'
+  return 'positive'
+})
+
+const availClass = computed(() => {
+  if (remaining.value <= 0) return 'is-empty'
+  if (availRatio.value < 0.25) return 'is-low'
+  return 'is-ok'
+})
+
+async function fixReservations() {
+  if (updating.value) return
+  updating.value = true
+  try {
+    await store.recomputeAllWurstAggregates()
+  } finally {
+    updating.value = false
+  }
+}
+
+
+async function toggleActive(v: boolean) {
+  try {
+    await store.setWurstActive(props.wurst.id, v)
+    $q.notify({
+      type: 'positive',
+      message: v ? 'Wurst aktiviert (sichtbar)' : 'Wurst deaktiviert (versteckt)',
+    })
+  } catch (e: any) {
+    console.error(e)
+    $q.notify({ type: 'negative', message: e?.message || 'Ändern fehlgeschlagen' })
+  }
+}
 
 // One-tap reserve: wenn 0 -> direkt 1 speichern + editor öffnen
 async function toggleReserve() {
@@ -236,7 +326,6 @@ async function toggleReserve() {
 
       await store.setReservation(props.wurst.id, 1)
       $q.notify({ type: 'positive', message: `Du hast 1 ${props.wurst.name} reserviert` })
-      currentQty.value = 1
       myQty.value = 1
       editorOpen.value = true
     } catch (e: any) {
@@ -275,7 +364,6 @@ async function saveReservation() {
     }
 
     await store.setReservation(props.wurst.id, desired)
-    currentQty.value = desired
     editorOpen.value = false
     $q.notify({ type: 'positive', message: desired > 0 ? `Du hast ${desired} ${props.wurst.name} reserviert` : 'Entfernt' })
   } catch (e: any) {
@@ -328,11 +416,12 @@ async function saveReservation() {
   left: 10px;
   padding: 6px 10px;
   border-radius: 999px;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
   display: inline-flex;
   align-items: center;
   backdrop-filter: blur(6px);
+  max-width: 80%;
 }
 
 .type-badge.product {
@@ -418,4 +507,105 @@ async function saveReservation() {
 .footer .react.active {
   font-weight: 700;
 }
+
+.fs-btn{
+  position:absolute;
+  right:8px;
+  bottom:8px;
+  z-index:5;
+
+  background: rgba(0,0,0,0.38);
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+
+  padding:8px;              /* war größer */
+}
+
+.fs-btn :deep(.q-btn){
+  min-width: 32px;          /* kleiner Tap-Button */
+  min-height: 32px;
+  padding: 0;
+}
+
+.fs-btn :deep(.q-icon){
+  font-size: 22px;          /* Icon kleiner */
+}
+
+
+.availability-pill{
+  position:absolute;
+  bottom:8px;
+  left:8px;
+  z-index:5;
+
+  display:flex;
+  align-items:center;
+  gap:6px;
+
+  padding:5px 7px;
+  border-radius:999px;
+
+  background: rgba(0,0,0,0.46);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+
+  color: rgba(255,255,255,0.92);
+  max-width: 72%;
+}
+
+.pill-ic{
+  opacity:0.95;
+  font-size:14px;
+}
+
+.pill-main{
+  min-width: 110px;
+}
+
+.pill-top{
+  display:flex;
+  align-items:baseline;
+  gap:4px;
+  line-height:1.0;
+  margin-bottom:3px;
+}
+
+.availability-pill .label{
+  font-size:10px;
+  opacity:0.78;
+}
+
+.availability-pill .value{
+  font-size:12px;
+  font-weight:900;
+}
+
+.availability-pill .muted{
+  font-size:10px;
+  opacity:0.75;
+}
+
+.pill-bar{
+  border-radius:999px;
+}
+
+.pill-refresh :deep(.q-btn){
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+}
+
+.pill-refresh :deep(.q-icon){
+  font-size: 22px;
+}
+
+.q-btn--dense.q-btn--round {
+  min-height: 22px;
+  min-width: 22px;
+}
+
+
 </style>

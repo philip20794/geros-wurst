@@ -37,11 +37,7 @@ watch(mode, (m) => {
   if (m === 'login') form.displayName = ''
 })
 
-watchEffect(() => {
-  if (auth.user != null) {
-    afterLoginNavigate()
-  }
-})
+
 
 async function afterLoginNavigate() {
   const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
@@ -80,7 +76,7 @@ async function submit() {
   loading.value = true
   error.value = null
 
-  try {
+try {
     if (mode.value === 'login') {
       await auth.login(form.email.trim(), form.password)
       $q.notify({ type: 'positive', message: 'Willkommen zurück!' })
@@ -88,7 +84,8 @@ async function submit() {
       await auth.register(form.email.trim(), form.password, form.displayName.trim() || undefined)
       $q.notify({ type: 'info', message: 'Konto erstellt. Warte auf Freigabe.' })
     }
-    router.push({ name: 'home' }) // Guard leitet ggf. zu /pending
+
+    await afterLoginNavigate() // ✅ EINZIGES Routing nach Erfolg
   } catch (e: any) {
     // hübschere Fehlermeldungen
     const code = e?.code as string | undefined

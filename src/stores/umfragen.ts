@@ -13,6 +13,7 @@ export type Umfrage = {
   id: string
   name: string
   sausagesPerPack: number
+  category: string
   totalPacks?: number | null
   pricePerPack?: number | null
   imageUrl: string
@@ -59,6 +60,7 @@ export const useUmfragenStore = defineStore('umfragen', () => {
   async function createUmfrage(payload: {
     name: string
     sausagesPerPack: number
+    category: string
     totalPacks?: number | null
     pricePerPack?: number | null
     file?: File | null
@@ -70,6 +72,7 @@ export const useUmfragenStore = defineStore('umfragen', () => {
     const docRef = await addDoc(collection(db, 'umfragen'), {
       name: payload.name.trim(),
       sausagesPerPack: Math.floor(Number(payload.sausagesPerPack)),
+      category: payload.category,
       totalPacks: payload.totalPacks ?? null,
       pricePerPack: payload.pricePerPack ?? null,
       imageUrl: '',
@@ -112,7 +115,7 @@ export const useUmfragenStore = defineStore('umfragen', () => {
     }
   }
 
-  async function updateUmfrage(id: string, data: Partial<Pick<Umfrage, 'name'|'sausagesPerPack'|'totalPacks'|'pricePerPack'>>) {
+  async function updateUmfrage(id: string, data: Partial<Pick<Umfrage, 'name'|'sausagesPerPack'|'totalPacks'|'pricePerPack'|'category'>>) {
     await updateDoc(doc(db, 'umfragen', id), data as any)
   }
 

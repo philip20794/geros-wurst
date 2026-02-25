@@ -132,3 +132,34 @@ body {
 .q-dialog__backdrop {
   background: rgba(0,0,0,.6);
 }
+
+html, body, #q-app {
+  background: #1f2d22; /* oder deine App-Farbe */
+}
+
+/* DEBUG: shadows + blur global disable */
+body.no-fx *,
+body.no-fx *::before,
+body.no-fx *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;            /* drop-shadow(), blur(), etc. */
+  backdrop-filter: none !important;   /* blur hinter Element */
+  -webkit-backdrop-filter: none !important;
+}
+
+
+.boot-overlay{
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(2px);
+}
+
+.fade-enter-active, .fade-leave-active { transition: opacity .18s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+

@@ -217,10 +217,11 @@ exports.convertUmfrageToWurst = onCall({ region: 'us-central1' }, async (request
   const uid = request.auth.uid
   await assertAdmin(uid)
 
-  // ✅ akzeptiere beide Keys, aber "umfrageId" ist der richtige
-  const { umfrageId, name, sausagesPerPack, totalPacks, pricePerPack } = request.data || {}
+  const { umfrageId, name, category, sausagesPerPack, totalPacks, pricePerPack } = request.data || {}
   const id = umfrageId
   if (!id) throw new HttpsError('invalid-argument', 'umfrageId fehlt')
+
+  const DEFAULT_CATEGORY = 'Würstchen'
 
   // 1) Umfrage laden
   const umfrageRef = db.doc(`umfragen/${id}`)
@@ -235,7 +236,8 @@ exports.convertUmfrageToWurst = onCall({ region: 'us-central1' }, async (request
   }
 
   // 2) Werte bestimmen (Dialog überschreibt, sonst Umfrage)
-  const finalName = String((name ?? umfrage.name ?? '')).trim()
+  const finalName = String(name ?? umfrage.name ?? '').trim()
+  const finalCategory = String(category ?? umfrage.category ?? DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY
   const finalSausages = Math.max(1, Math.floor(Number(sausagesPerPack ?? umfrage.sausagesPerPack ?? 1)))
   const finalTotal = Math.max(0, Math.floor(Number(totalPacks ?? umfrage.totalPacks ?? 0)))
   const finalPrice = Math.max(0, Number(Number(pricePerPack ?? umfrage.pricePerPack ?? 0).toFixed(2)))
@@ -244,10 +246,11 @@ exports.convertUmfrageToWurst = onCall({ region: 'us-central1' }, async (request
 
   // 3) Wurst anlegen
   const wurstRef = await db.collection('wuerste').add({
-    name: name,
-    sausagesPerPack: Number(sausagesPerPack || 0),
-    totalPacks: Number(totalPacks || 0),
-    pricePerPack: Number(pricePerPack || 0),
+    name: finalName,
+    category: finalCategory, // ✅ neu
+    sausagesPerPack: finalSausages,
+    totalPacks: finalTotal,
+    pricePerPack: finalPrice,
     reservedPacks: 0,
 
     // WICHTIG: nicht übernehmen
@@ -259,14 +262,13 @@ exports.convertUmfrageToWurst = onCall({ region: 'us-central1' }, async (request
     createdFromUmfrageId: id,
   })
 
-
   const wurstId = wurstRef.id
 
   // 4) willhaben -> reservations kopieren
   const willSnap = await umfrageRef.collection('willhaben').get()
 
   let totalCopied = 0
-  const docs = [...willSnap.docs] // nicht das Original mutieren
+  const docs = [...willSnap.docs]
 
   while (docs.length) {
     const chunk = docs.splice(0, 400)

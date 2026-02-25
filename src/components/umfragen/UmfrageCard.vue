@@ -66,7 +66,7 @@
 
       <div class="meta row items-center justify-between q-mt-xs">
         <div class="text-caption opacity-75">
-          {{ umfrage.sausagesPerPack }} Würstchen pro Packung
+          {{ umfrage.sausagesPerPack }} {{ categorySafe }} pro Packung
         </div>
 
         <div class="text-caption opacity-75">
@@ -278,6 +278,12 @@ const goalHint = computed(() => {
   if (target == null || target <= 0) return ''
   const rest = Math.max(0, target - wantSum.value)
   return rest === 0 ? 'Ziel erreicht ✅' : `Noch ${rest} bis zum Ziel`
+})
+
+const categorySafe = computed(() => {
+  const c = (props.umfrage as any)?.category
+  const s = String(c ?? '').trim()
+  return s.length ? s : 'Würstchen'
 })
 
 // Reaction: One tap => direkt 1 speichern + editor öffnen
